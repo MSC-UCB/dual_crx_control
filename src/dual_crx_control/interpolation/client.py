@@ -6,12 +6,12 @@ from dual_crx_control.robot.joint_config import JOINT_NAMES, SIDES, canonical_si
 
 
 class JointTargetClient:
-    def __init__(self, node, arms=SIDES):
+    def __init__(self, node, arms=SIDES, target_topic='joint_targets'):
         selected = {canonical_side(a) for a in arms}
         if not selected:
             raise ValueError('at least one arm is required')
         self.arms = tuple(s for s in SIDES if s in selected)
-        self.publisher = node.create_publisher(JointState, '/interpolation/joint_targets', 1)
+        self.publisher = node.create_publisher(JointState, target_topic, 1)
         self.parts = {}
 
     def available(self):

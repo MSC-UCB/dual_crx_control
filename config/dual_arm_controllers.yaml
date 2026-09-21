@@ -8,16 +8,16 @@
 
 /**/joint_state_broadcaster:
   ros__parameters:
-    # Publish /left/joint_states and /right/joint_states in the manager namespace.
+    # Publish left/joint_states and right/joint_states in each manager namespace.
     use_local_topics: false
     interfaces: [position, velocity]
 
-/left/forward_position_controller:
+/**/left/forward_position_controller:
   ros__parameters:
     joints: [left_J1, left_J2, left_J3, left_J4, left_J5, left_J6]
     interface_name: position
 
-/right/forward_position_controller:
+/**/right/forward_position_controller:
   ros__parameters:
     joints: [right_J1, right_J2, right_J3, right_J4, right_J5, right_J6]
     interface_name: position

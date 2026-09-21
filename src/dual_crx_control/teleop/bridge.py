@@ -25,7 +25,8 @@ class TeleopBridge(Node):
             raise ValueError('state_publish_rate must be finite and positive')
 
         self.states = {}
-        self.target_client = JointTargetClient(self)
+        # Legacy adapter: keep the old application protocol isolated from the generic core target topic.
+        self.target_client = JointTargetClient(self, target_topic='/interpolation/joint_targets')
         self.pending_command = None
         self.arm_publishers = {}
         for side in SIDES:

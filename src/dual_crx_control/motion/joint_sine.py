@@ -38,9 +38,9 @@ class JointSine(Node):
         self.recording = JointRecording(args.output_dir, target_source='target', arms=args.arms)
         self.events = LatencyRecording() if args.latency_csv else None
         for side in args.arms:
-            self.create_subscription(JointState, f'/{side}/joint_states',
+            self.create_subscription(JointState, f'{side}/joint_states',
                                      partial(self.feedback, side), qos_profile_sensor_data)
-        self.create_subscription(JointState, '/interpolation/joint_commands', self.command, 1000)
+        self.create_subscription(JointState, 'interpolated_joint_commands', self.command, 1000)
         self.create_timer(1., self.recording.flush, clock=Clock(clock_type=ClockType.STEADY_TIME))
         self.timer = None
 

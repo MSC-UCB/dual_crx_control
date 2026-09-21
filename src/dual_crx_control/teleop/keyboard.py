@@ -116,7 +116,7 @@ class KeyboardControl(Node):
         self.method_checked = -float('inf')
         self.ruckig_ready = False
         for side in SIDES:
-            self.create_subscription(JointState, f'/{side}/joint_states',
+            self.create_subscription(JointState, f'{side}/joint_states',
                                      partial(self.feedback, side), qos_profile_sensor_data)
         self.create_subscription(String, '/robot_description', self.configure_message,
                                  QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL))

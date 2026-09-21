@@ -99,7 +99,7 @@ class DualCartesianController(Node):
                 QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL))
         self.get_logger().info('Waiting for robot description, both joint states, and command subscribers...')
         self.get_logger().info(f"Joint target rate: {p['rate']} Hz; output owned by interpolation node")
-        self.create_subscription(JointState, '/interpolation/joint_commands', self.record_command, 10)
+        self.create_subscription(JointState, 'interpolated_joint_commands', self.record_command, 10)
         self.joint_recording = JointRecording(self.output_dir, target_source='target') if self.save_plot else None
         if self.joint_recording is not None:
             self.create_timer(1., self.joint_recording.flush, clock=Clock(clock_type=ClockType.STEADY_TIME))
@@ -130,7 +130,7 @@ class DualCartesianController(Node):
                 orientation_tolerance=p['orientation_tolerance'], max_iterations=p['max_iterations'],
                 max_joint_step=p['ik_max_joint_step'], alpha=p['ik_alpha'])
             self.arm_publishers[side] = self.target_client.arm_publisher(side)
-            self.create_subscription(JointState, f'/{side}/joint_states',
+            self.create_subscription(JointState, f'{side}/joint_states',
                                      partial(self.feedback, side), qos_profile_sensor_data)
         self.description = description
 

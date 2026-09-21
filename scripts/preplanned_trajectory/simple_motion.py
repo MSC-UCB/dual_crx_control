@@ -45,9 +45,9 @@ class SimpleMotion(Node):
         self.target_client = JointTargetClient(self)
         self.recording = JointRecording(args.output_dir, target_source='target')
         for side in SIDES:
-            self.create_subscription(JointState, f'/{side}/joint_states',
+            self.create_subscription(JointState, f'{side}/joint_states',
                                      partial(self.receive_state, side), qos_profile_sensor_data)
-        self.create_subscription(JointState, '/interpolation/joint_commands', self.receive_command, 1000)
+        self.create_subscription(JointState, 'interpolated_joint_commands', self.receive_command, 1000)
         self.create_timer(1., self.recording.flush, clock=Clock(clock_type=ClockType.STEADY_TIME))
         self.timer = self.create_timer(1. / args.rate, self.tick,
                                       clock=Clock(clock_type=ClockType.STEADY_TIME))

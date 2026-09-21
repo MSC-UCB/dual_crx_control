@@ -28,6 +28,7 @@ install(PROGRAMS
   scripts/util/interpolation_node
   scripts/util/teleop_bridge
   scripts/analysis/record_teleoperation.py
+  scripts/analysis/record_joint_streams.py
   scripts/analysis/analyze_latency.py
   DESTINATION lib/${PROJECT_NAME}
 )

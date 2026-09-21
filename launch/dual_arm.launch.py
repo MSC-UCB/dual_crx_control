@@ -1,4 +1,4 @@
-"""Dual-arm bringup: motion scripts send joint targets to the shared interpolator.
+"""Canonical dual-arm bringup with one namespace-relative joint-target interface.
 
 Before use (in each terminal):
     cd /home/msc-crx/ws_fanuc
@@ -21,8 +21,9 @@ Main arguments and defaults:
     All methods output at 500 Hz; input_rate_hz does not change the sender's frequency.
     left_robot_ip:=192.168.2.100; right_robot_ip:=192.168.1.100.
 
-Input: /interpolation/joint_targets (JointState; one complete arm or both arms).
-Joint names: left_J1..left_J6 / right_J1..right_J6; there is no prefix launch argument.
+Input: <namespace>/joint_targets (JointState; one complete arm or both arms).
+Default namespace: /crx5ia; override with namespace:=... .
+Joint names: left_J1..left_J6 / right_J1..right_J6.
 This launch starts the control stack. Run a motion script in another terminal, e.g.:
     ros2 run dual_crx_control simple_motion.py --joint 1 --range-deg 1.5 --hold 2 --duration 20 --rate 50
 simple_motion.py records its own CSV and generates left/right plots on completion or Ctrl+C.
@@ -39,6 +40,8 @@ from dual_crx_control.robot.description import arm_description
 
 
 def launch_setup(context):
+    namespace = LaunchConfiguration("namespace").perform(context).strip("/") or "crx5ia"
+    prefix = f"/{namespace}"
     mock = LaunchConfiguration("mock").perform(context) == "true"
     xacro_file = PathJoinSubstitution([
         FindPackageShare("dual_crx_control"), "urdf", "dual_crx.urdf.xacro",
@@ -58,57 +61,62 @@ def launch_setup(context):
     # Driver descriptions own controller interfaces; the combined model owns global TF.
     right_state_publisher = Node(
         package="robot_state_publisher", executable="robot_state_publisher",
-        namespace="right", parameters=[{"robot_description": right_description}],
-        remappings=[("/tf", "/right/driver_tf"), ("/tf_static", "/right/driver_tf_static")],
+        namespace=f"{namespace}/right", parameters=[{"robot_description": right_description}],
+        remappings=[("/tf", f"{prefix}/right/driver_tf"),
+                    ("/tf_static", f"{prefix}/right/driver_tf_static")],
         output="screen",
     )
     left_state_publisher = Node(
         package="robot_state_publisher", executable="robot_state_publisher",
-        namespace="left", parameters=[{"robot_description": left_description}],
-        remappings=[("/tf", "/left/driver_tf"), ("/tf_static", "/left/driver_tf_static")],
+        namespace=f"{namespace}/left", parameters=[{"robot_description": left_description}],
+        remappings=[("/tf", f"{prefix}/left/driver_tf"),
+                    ("/tf_static", f"{prefix}/left/driver_tf_static")],
         output="screen",
     )
     robot1 = Node(
-        package="controller_manager", executable="ros2_control_node", namespace="right",
-        parameters=[controllers], remappings=[("robot_description", "/right/robot_description")],
+        package="controller_manager", executable="ros2_control_node",
+        namespace=f"{namespace}/right", parameters=[controllers],
+        remappings=[("robot_description", f"{prefix}/right/robot_description")],
         output="screen",
     )
     robot2 = Node(
-        package="controller_manager", executable="ros2_control_node", namespace="left",
-        parameters=[controllers], remappings=[("robot_description", "/left/robot_description")],
+        package="controller_manager", executable="ros2_control_node",
+        namespace=f"{namespace}/left", parameters=[controllers],
+        remappings=[("robot_description", f"{prefix}/left/robot_description")],
         output="screen",
     )
     forward_spawners = [
         Node(
-            package="controller_manager", executable="spawner", namespace=side,
+            package="controller_manager", executable="spawner", namespace=f"{namespace}/{side}",
             name="joint_controller_spawner", output="screen",
             arguments=["joint_state_broadcaster", "forward_position_controller",
-                       "--controller-manager", f"/{side}/controller_manager",
+                       "--controller-manager", f"{prefix}/{side}/controller_manager",
                        "--controller-manager-timeout", "180", "--param-file", controllers],
         )
         for side in ("right", "left")
     ]
     interpolation = Node(
-        package="dual_crx_control", executable="interpolation_node", output="screen",
-        parameters=[{
+        package="dual_crx_control", executable="interpolation_node",
+        namespace=namespace, output="screen", parameters=[{
             "input_rate_hz": ParameterValue(LaunchConfiguration("input_rate_hz"), value_type=float),
             "method": LaunchConfiguration("method"),
         }],
     )
     joint_state_merger = Node(
         package="joint_state_publisher", executable="joint_state_publisher",
-        name="dual_crx_joint_state_merger", output="screen",
+        namespace=namespace, name="dual_crx_joint_state_merger", output="screen",
         parameters=[{"robot_description": robot_description,
-                     "source_list": ["/left/joint_states", "/right/joint_states"],
+                     "source_list": [f"{prefix}/left/joint_states", f"{prefix}/right/joint_states"],
                      "rate": 100, "publish_default_positions": False}],
     )
     robot_state_publisher = Node(
         package="robot_state_publisher", executable="robot_state_publisher",
-        name="dual_crx_robot_state_publisher", output="screen",
+        namespace=namespace, name="dual_crx_robot_state_publisher", output="screen",
         parameters=[{"robot_description": robot_description}],
     )
     rviz = Node(
-        package="rviz2", executable="rviz2", output="screen",
+        package="rviz2", executable="rviz2", namespace=namespace, output="screen",
+        remappings=[("/robot_description", f"{prefix}/robot_description")],
         arguments=["-d", PathJoinSubstitution([
             FindPackageShare("dual_crx_control"), "rviz", "dual_cartesian.rviz",
         ])],
@@ -130,6 +138,8 @@ def launch_setup(context):
 def generate_launch_description():
     # Resolve mock/IP arguments before expanding driver Xacro descriptions.
     return LaunchDescription([
+        DeclareLaunchArgument("namespace", default_value="crx5ia",
+                              description="Namespace for the core robot and joint-target topics"),
         DeclareLaunchArgument("mock", default_value="true", choices=["true", "false"]),
         DeclareLaunchArgument("rviz", default_value="true", choices=["true", "false"]),
         DeclareLaunchArgument("right_robot_ip", default_value="192.168.1.100"),
