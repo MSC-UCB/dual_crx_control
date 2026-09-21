@@ -208,8 +208,8 @@ The target message contains `left_J1`–`left_J6` and `right_J1`–`right_J6` in
 radians. The merged measured feedback is read from `joint_states`. The core
 interpolator publishes the accepted command stream at 500 Hz and holds the last
 accepted target until a fresh target arrives. The legacy
-`dual_arm_teleop.launch.py` and `teleop_bridge` remain available as compatibility
-adapters for older publishers.
+Legacy `dual_arm_teleop.launch.py`, `teleop_bridge`, and `/teleop/*` topics
+have been removed. External publishers must use the generic namespaced interface.
 
 | Relative topic (under `namespace`) | Message type | Content |
 | --- | --- | --- |
@@ -271,11 +271,11 @@ By default, trajectory scripts save results under `motion_recordings/<timestamp>
 For keyboard control or another command source, start the standalone recorder and press `Ctrl+C` when finished to save its plots:
 
 ```bash
-ros2 run dual_crx_control record_teleoperation.py --ros-args \
-  -p output_dir:="$PWD/teleop_recordings"
+ros2 run dual_crx_control record_joint_streams.py --ros-args \
+  -p output_dir:="$PWD/joint_recordings"
 ```
 
-Do not start a duplicate recorder when the teleoperation launch already has recording enabled. Trajectory recordings label targets as `target`; the standalone/teleoperation recorder labels them as `telebridge`. Interpolated commands and feedback use `interpolated` and `feedback`.
+The canonical `dual_arm.launch.py` does not start a recorder automatically. All recorders label sources as `target`, `interpolated`, and `feedback`.
 
 To estimate the delay between interpolated commands and feedback, replace the CSV path with an actual recording:
 

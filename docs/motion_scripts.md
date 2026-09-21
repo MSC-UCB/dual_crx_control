@@ -12,9 +12,8 @@ scripts/
     facing_circle.py
   util/
     interpolation_node
-    teleop_bridge
   analysis/
-    record_teleoperation.py
+    record_joint_streams.py
     analyze_latency.py
   calibrate_arm_bases.py
 ```
@@ -32,7 +31,7 @@ Reusable implementation lives under `src/dual_crx_control/`:
 | `interpolation` | Joint-target clients, interpolation node and interpolation backends |
 | `motion` | Motion controllers, startup approaches and circular trajectories |
 | `analysis` | Joint/TCP recording, plotting and latency analysis |
-| `teleop` | Live joint-command bridge |
+| `teleop` | Interactive keyboard control |
 
 Shared imports now use these packages, e.g. `dual_crx_control.robot.joint_config`
 and `dual_crx_control.analysis.motion_recording`. `ordered_feedback()` lives in
