@@ -17,7 +17,11 @@ Main arguments and defaults:
     mock:=true; rviz:=true; method:=linear (choices: linear / cubic / ruckig).
     input_rate_hz:=50.0: expected target frequency; valid range: 0 < Hz <= 500.
     linear/cubic use 1/input_rate_hz as the transition time; match the actual input rate.
-    ruckig uses velocity, acceleration and jerk limits, not this value, to set arrival time.
+    ruckig_target_mode:=waypoint keeps rest-to-rest targets; stream is explicit opt-in.
+    In stream mode input_rate_hz supplies the reference period and the target timeout
+    returns to hold after a dropout. Stream mode may add up to one reference period of
+    phase lag while preserving the configured velocity, acceleration and jerk limits.
+    In waypoint mode Ruckig uses limits, not input_rate_hz, to set arrival time.
     All methods output at 500 Hz; input_rate_hz does not change the sender's frequency.
     left_robot_ip:=192.168.2.100; right_robot_ip:=192.168.1.100.
 
@@ -100,6 +104,9 @@ def launch_setup(context):
         namespace=namespace, output="screen", parameters=[{
             "input_rate_hz": ParameterValue(LaunchConfiguration("input_rate_hz"), value_type=float),
             "method": LaunchConfiguration("method"),
+            "ruckig_target_mode": LaunchConfiguration("ruckig_target_mode"),
+            "ruckig_target_timeout": ParameterValue(
+                LaunchConfiguration("ruckig_target_timeout"), value_type=float),
         }],
     )
     joint_state_merger = Node(
@@ -146,5 +153,10 @@ def generate_launch_description():
         DeclareLaunchArgument("left_robot_ip", default_value="192.168.2.100"),
         DeclareLaunchArgument("input_rate_hz", default_value="50.0"),
         DeclareLaunchArgument("method", default_value="linear", choices=["linear", "cubic", "ruckig"]),
+        DeclareLaunchArgument("ruckig_target_mode", default_value="waypoint",
+                              choices=["waypoint", "stream"],
+                              description="Ruckig target semantics; stream is opt-in"),
+        DeclareLaunchArgument("ruckig_target_timeout", default_value="0.2",
+                              description="Seconds without a stream target before hold"),
         OpaqueFunction(function=launch_setup),
     ])

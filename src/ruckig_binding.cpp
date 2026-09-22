@@ -39,12 +39,14 @@ public:
     }
   }
 
-  void target(size_t arm, const Arm &q, const Arm &start, const Arm &velocity) {
+  void target(size_t arm, const Arm &q, const Arm &start, const Arm &velocity,
+              const Arm &target_velocity, const Arm &target_acceleration) {
     if (arm > 1) {
       throw std::invalid_argument("Expected arm index 0 or 1");
     }
     for (size_t j = 0; j < 6; ++j) {
-      if (!std::isfinite(q[j]) || !std::isfinite(start[j]) || !std::isfinite(velocity[j])) {
+      if (!std::isfinite(q[j]) || !std::isfinite(start[j]) || !std::isfinite(velocity[j]) ||
+          !std::isfinite(target_velocity[j]) || !std::isfinite(target_acceleration[j])) {
         throw std::invalid_argument("Ruckig joint state must be finite");
       }
     }
@@ -66,6 +68,8 @@ public:
       // target displacement to 1e-12 rad; never reset/round reference v or a.
       input_.target_position[i] = std::abs(relative) < 1e6
           ? std::round(relative * 1e12) / 1e12 : relative;
+      input_.target_velocity[i] = target_velocity[j];
+      input_.target_acceleration[i] = target_acceleration[j];
     }
   }
 

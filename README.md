@@ -157,6 +157,23 @@ In terminal 1, launch with Ruckig:
 ros2 launch dual_crx_control dual_arm.launch.py mock:=true rviz:=true method:=ruckig
 ```
 
+Ruckig keeps independent absolute targets as rest-to-rest waypoints by default.
+For a low-frequency reference stream, opt in explicitly:
+
+```bash
+ros2 launch dual_crx_control dual_arm.launch.py \
+  namespace:=crx5ia mock:=true rviz:=false method:=ruckig \
+  input_rate_hz:=10.0 ruckig_target_mode:=stream \
+  ruckig_target_timeout:=0.2
+```
+
+In `stream` mode, `input_rate_hz` describes the expected reference period. The
+interpolator estimates bounded target derivatives from arrival times and keeps
+tracking between samples. A dropout longer than `ruckig_target_timeout` changes
+the terminal derivatives to zero and holds the last target. The reference can
+therefore have up to one input period of phase lag; velocity, acceleration and
+jerk limits remain enforced. `waypoint` remains the default for motion scripts.
+
 In terminal 2, start keyboard input and keep that terminal focused:
 
 ```bash
@@ -255,9 +272,11 @@ external publisher / motion script
         -> /crx5ia/joint_states
 ```
 
-The interpolator publishes at 500 Hz. `input_rate_hz` sets the expected input
-rate and interpolation horizon for linear/cubic modes; it does not throttle the
-target publisher. Use `ros2 topic list`, `ros2 topic info <topic>`, and
+The interpolator publishes at 500 Hz. For linear/cubic modes, `input_rate_hz`
+sets the expected input rate and interpolation horizon; it does not throttle the
+target publisher. For Ruckig, it sets the reference period only when
+`ruckig_target_mode:=stream`; waypoint mode keeps its limit-selected arrival
+time. Use `ros2 topic list`, `ros2 topic info <topic>`, and
 `ros2 topic echo <topic> --once` to inspect a running system.
 
 ## Recording and analysis

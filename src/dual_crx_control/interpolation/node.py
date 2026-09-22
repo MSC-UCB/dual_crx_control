@@ -43,9 +43,20 @@ class InterpolationNode(Node):
         self.ruckig = None
         self.velocities = {}
         if self.method == 'ruckig':
+            self.ruckig_target_mode = self.declare_parameter(
+                'ruckig_target_mode', 'waypoint', ParameterDescriptor(read_only=True)).value
+            if self.ruckig_target_mode not in ('waypoint', 'stream'):
+                raise ValueError('ruckig_target_mode must be waypoint or stream')
+            self.ruckig_target_timeout = self.declare_parameter(
+                'ruckig_target_timeout', 2.0 / self.input_rate,
+                ParameterDescriptor(read_only=True)).value
             from dual_crx_control.interpolation.ruckig import (
                 RuckigInterpolation, MAX_VELOCITY, MAX_ACCELERATION, MAX_JERK)
-            self.ruckig = RuckigInterpolation(1 / OUTPUT_RATE_HZ)
+            self.ruckig = RuckigInterpolation(
+                1 / OUTPUT_RATE_HZ, mode=self.ruckig_target_mode,
+                input_period=1 / self.input_rate,
+                target_timeout=(self.ruckig_target_timeout
+                                if self.ruckig_target_mode == 'stream' else None))
             self.get_logger().info(
                 f'Ruckig at {OUTPUT_RATE_HZ:g} Hz; max velocity={MAX_VELOCITY} rad/s; '
                 f'experimental max acceleration={MAX_ACCELERATION} rad/s²; '
@@ -102,7 +113,8 @@ class InterpolationNode(Node):
 
     def accept(self, commands):
         if self.ruckig is not None:
-            self.ruckig.target(commands, self.positions, self.velocities)
+            self.ruckig.target(commands, self.positions, self.velocities,
+                               timestamp=time.monotonic())
             return
         now = time.monotonic()
         segments = {}
@@ -121,7 +133,7 @@ class InterpolationNode(Node):
         now = now_ns * 1e-9
         if self.ruckig is not None:
             try:
-                commands = self.ruckig.step()
+                commands = self.ruckig.step(timestamp=now)
             except RuntimeError as exc:
                 self.get_logger().error(f'{exc}; holding last published positions.', throttle_duration_sec=2.)
                 commands = {s: q.copy() for s, q in self.last_q.items()}
