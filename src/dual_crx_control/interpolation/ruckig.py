@@ -11,9 +11,9 @@ from dual_crx_control.robot.joint_config import SIDES
 MAX_VELOCITY = tuple(math.radians(v) for v in (150, 150, 180, 225, 225, 225))
 # Experimental planning values, NOT verified CRX-5iA hardware acceleration limits.
 # Starting point: fanuc_moveit_config/config/joint_limits.yaml (CRX-10iA).
-MAX_ACCELERATION = (3.0, 3.0, 4.5, 4.5, 4.5, 4.5)
+MAX_ACCELERATION = (3.0, 3.0, 4.5, 8.0, 8.0, 4.5)
 # Experimental 0.1 s acceleration ramp: jerk = acceleration / 0.1.
-MAX_JERK = (30.0, 30.0, 45, 45.0, 45.0, 45.0)
+MAX_JERK = (30.0, 30.0, 45, 80.0, 80.0, 45.0)
 
 
 class RuckigInterpolation:
