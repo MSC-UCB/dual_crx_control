@@ -64,6 +64,9 @@ endif()
 
 if(BUILD_TESTING)
   find_package(ament_cmake_pytest REQUIRED)
+  ament_add_pytest_test(ruckig_timing tools/test_ruckig_timing.py TIMEOUT 60)
+  ament_add_pytest_test(ruckig_mock_launch tools/test_ruckig_mock_launch.py TIMEOUT 90
+    ENV ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST)
   ament_add_pytest_test(keyboard tools/test_keyboard.py TIMEOUT 60
     ENV PYTHONDONTWRITEBYTECODE=1 OPENBLAS_NUM_THREADS=1)
   ament_add_pytest_test(motion_refactor tools/test_motion_refactor.py TIMEOUT 60
