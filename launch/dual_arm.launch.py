@@ -1,4 +1,4 @@
-"""Canonical dual-arm bringup with one namespace-relative joint-target interface.
+"""Canonical dual-arm bringup with one fixed CRX5IA joint-target interface.
 
 Before use (in each terminal):
     cd /home/msc-crx/ws_fanuc
@@ -23,10 +23,9 @@ Main arguments and defaults:
     phase lag while preserving the configured velocity, acceleration and jerk limits.
     In waypoint mode Ruckig uses limits, not input_rate_hz, to set arrival time.
     All methods output at 500 Hz; input_rate_hz does not change the sender's frequency.
-    left_robot_ip:=192.168.2.100; right_robot_ip:=192.168.1.100.
+    left_robot_ip:=192.168.10.100; right_robot_ip:=192.168.10.200.
 
-Input: <namespace>/joint_targets (JointState; one complete arm or both arms).
-Default namespace: /crx5ia; override with namespace:=... .
+Input: /crx5ia/joint_targets (JointState; one complete arm or both arms).
 Joint names: left_J1..left_J6 / right_J1..right_J6.
 This launch starts the control stack. Run a motion script in another terminal, e.g.:
     ros2 run dual_crx_control simple_motion.py --joint 1 --range-deg 1.5 --hold 2 --duration 20 --rate 50
@@ -44,7 +43,7 @@ from dual_crx_control.robot.description import arm_description
 
 
 def launch_setup(context):
-    namespace = LaunchConfiguration("namespace").perform(context).strip("/") or "crx5ia"
+    namespace = "crx5ia"
     prefix = f"/{namespace}"
     mock = LaunchConfiguration("mock").perform(context) == "true"
     xacro_file = PathJoinSubstitution([
@@ -145,12 +144,10 @@ def launch_setup(context):
 def generate_launch_description():
     # Resolve mock/IP arguments before expanding driver Xacro descriptions.
     return LaunchDescription([
-        DeclareLaunchArgument("namespace", default_value="crx5ia",
-                              description="Namespace for the core robot and joint-target topics"),
         DeclareLaunchArgument("mock", default_value="true", choices=["true", "false"]),
         DeclareLaunchArgument("rviz", default_value="true", choices=["true", "false"]),
-        DeclareLaunchArgument("right_robot_ip", default_value="192.168.1.100"),
-        DeclareLaunchArgument("left_robot_ip", default_value="192.168.2.100"),
+        DeclareLaunchArgument("right_robot_ip", default_value="192.168.10.200"),
+        DeclareLaunchArgument("left_robot_ip", default_value="192.168.10.100"),
         DeclareLaunchArgument("input_rate_hz", default_value="50.0"),
         DeclareLaunchArgument("method", default_value="linear", choices=["linear", "cubic", "ruckig"]),
         DeclareLaunchArgument("ruckig_target_mode", default_value="waypoint",

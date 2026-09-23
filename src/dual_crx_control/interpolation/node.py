@@ -14,7 +14,9 @@ from sensor_msgs.msg import JointState
 from std_msgs.msg import Float64MultiArray
 
 from dual_crx_control.interpolation.trajectory import JointSegment, OUTPUT_RATE_HZ, validate_rate
-from dual_crx_control.robot.joint_config import SIDES, JOINT_NAMES
+from dual_crx_control.robot.joint_config import (
+    INTERPOLATED_COMMANDS_TOPIC, JOINT_NAMES,
+    JOINT_TARGETS_TOPIC, SIDES, arm_topic)
 
 
 def joint_targets(message):
@@ -67,11 +69,11 @@ class InterpolationNode(Node):
         self.arm_publishers = {}
         for side in SIDES:
             self.arm_publishers[side] = self.create_publisher(
-                Float64MultiArray, f'{side}/forward_position_controller/commands', 1)
-            self.create_subscription(JointState, f'{side}/joint_states',
+                Float64MultiArray, arm_topic(side, 'forward_position_controller/commands'), 1)
+            self.create_subscription(JointState, arm_topic(side, 'joint_states'),
                                      partial(self.feedback, side), qos_profile_sensor_data)
-        self.command_pub = self.create_publisher(JointState, 'interpolated_joint_commands', 10)
-        self.create_subscription(JointState, 'joint_targets', self.target, 1)
+        self.command_pub = self.create_publisher(JointState, INTERPOLATED_COMMANDS_TOPIC, 10)
+        self.create_subscription(JointState, JOINT_TARGETS_TOPIC, self.target, 1)
         self.timer = self.create_timer(1 / OUTPUT_RATE_HZ, self.tick,
                                       clock=Clock(clock_type=ClockType.STEADY_TIME))
 

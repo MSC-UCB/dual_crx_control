@@ -14,7 +14,8 @@ from rclpy.utilities import remove_ros_args
 from sensor_msgs.msg import JointState
 
 from dual_crx_control.interpolation.client import JointTargetClient
-from dual_crx_control.robot.joint_config import SIDES, ordered_feedback
+from dual_crx_control.robot.joint_config import (
+    INTERPOLATED_COMMANDS_TOPIC, SIDES, arm_topic, ordered_feedback)
 from dual_crx_control.analysis.latency_recording import LatencyRecording
 from dual_crx_control.analysis.motion_recording import JointRecording
 
@@ -38,9 +39,9 @@ class JointSine(Node):
         self.recording = JointRecording(args.output_dir, target_source='target', arms=args.arms)
         self.events = LatencyRecording() if args.latency_csv else None
         for side in args.arms:
-            self.create_subscription(JointState, f'{side}/joint_states',
+            self.create_subscription(JointState, arm_topic(side, 'joint_states'),
                                      partial(self.feedback, side), qos_profile_sensor_data)
-        self.create_subscription(JointState, 'interpolated_joint_commands', self.command, 1000)
+        self.create_subscription(JointState, INTERPOLATED_COMMANDS_TOPIC, self.command, 1000)
         self.create_timer(1., self.recording.flush, clock=Clock(clock_type=ClockType.STEADY_TIME))
         self.timer = None
 

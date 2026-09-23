@@ -20,6 +20,8 @@ from dual_crx_control.robot.ik_solver import DampedLeastSquaresIK
 from dual_crx_control.motion.startup_motion import INITIAL_JOINTS_DEG, InitialJointMove
 from dual_crx_control.interpolation.client import JointTargetClient
 from dual_crx_control.analysis.motion_recording import JointRecording, MotionRecording
+from dual_crx_control.robot.joint_config import (
+    INTERPOLATED_COMMANDS_TOPIC, ROBOT_DESCRIPTION_TOPIC, arm_topic)
 
 
 class DualCartesianController(Node):
@@ -95,11 +97,11 @@ class DualCartesianController(Node):
             self.configure_model(description)
         else:
             self.create_subscription(
-                String, '/robot_description', self.description_callback,
+                String, ROBOT_DESCRIPTION_TOPIC, self.description_callback,
                 QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL))
         self.get_logger().info('Waiting for robot description, both joint states, and command subscribers...')
         self.get_logger().info(f"Joint target rate: {p['rate']} Hz; output owned by interpolation node")
-        self.create_subscription(JointState, 'interpolated_joint_commands', self.record_command, 10)
+        self.create_subscription(JointState, INTERPOLATED_COMMANDS_TOPIC, self.record_command, 10)
         self.joint_recording = JointRecording(self.output_dir, target_source='target') if self.save_plot else None
         if self.joint_recording is not None:
             self.create_timer(1., self.joint_recording.flush, clock=Clock(clock_type=ClockType.STEADY_TIME))
@@ -130,7 +132,7 @@ class DualCartesianController(Node):
                 orientation_tolerance=p['orientation_tolerance'], max_iterations=p['max_iterations'],
                 max_joint_step=p['ik_max_joint_step'], alpha=p['ik_alpha'])
             self.arm_publishers[side] = self.target_client.arm_publisher(side)
-            self.create_subscription(JointState, f'{side}/joint_states',
+            self.create_subscription(JointState, arm_topic(side, 'joint_states'),
                                      partial(self.feedback, side), qos_profile_sensor_data)
         self.description = description
 

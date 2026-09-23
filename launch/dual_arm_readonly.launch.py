@@ -9,6 +9,8 @@ from launch.substitutions import Command, PathJoinSubstitution
 
 def generate_launch_description():
 
+    namespace = "crx5ia"
+
     # --------------------------------------------------
     # Combined dual-arm URDF
     # --------------------------------------------------
@@ -28,6 +30,7 @@ def generate_launch_description():
         package="robot_state_publisher",
         executable="robot_state_publisher",
         name="dual_crx_robot_state_publisher",
+        namespace=namespace,
         output="screen",
         parameters=[{
             "robot_description": robot_description
@@ -37,6 +40,7 @@ def generate_launch_description():
     rviz = Node(
         package="rviz2",
         executable="rviz2",
+        namespace=namespace,
         output="screen",
     )
 
@@ -54,11 +58,11 @@ def generate_launch_description():
     right_robot = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(fanuc_physical_launch),
         launch_arguments={
-            "robot_ip": "192.168.1.100",
+            "robot_ip": "192.168.10.200",
             "robot_series": "crx",
             "robot_model": "crx5ia",
 
-            "namespace": "right",
+            "namespace": "crx5ia/right",
             "prefix": "right_",
 
             "use_mock": "false",
@@ -77,11 +81,11 @@ def generate_launch_description():
     left_robot = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(fanuc_physical_launch),
         launch_arguments={
-            "robot_ip": "192.168.2.100",
+            "robot_ip": "192.168.10.100",
             "robot_series": "crx",
             "robot_model": "crx5ia",
 
-            "namespace": "left",
+            "namespace": "crx5ia/left",
             "prefix": "left_",
 
             "use_mock": "false",

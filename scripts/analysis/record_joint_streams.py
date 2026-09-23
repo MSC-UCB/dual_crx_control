@@ -12,23 +12,25 @@ from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import JointState
 
-from dual_crx_control.robot.joint_config import JOINT_NAMES, SIDES
+from dual_crx_control.robot.joint_config import (
+    INTERPOLATED_COMMANDS_TOPIC, JOINT_NAMES, JOINT_TARGETS_TOPIC, SIDES,
+    arm_topic)
 from dual_crx_control.analysis.motion_recording import JointRecording
 
 
 class JointStreamRecorder(Node):
-    """Record the namespace-relative generic control streams."""
+    """Record the fixed CRX5IA generic control streams."""
 
     def __init__(self, **kwargs):
         super().__init__('joint_stream_recorder', **kwargs)
         output_dir = self.declare_parameter(
             'output_dir', '/home/msc-crx/ws_fanuc/joint_recordings').value
         self.recording = JointRecording(output_dir, target_source='target')
-        for topic, source in (('joint_targets', 'target'),
-                              ('interpolated_joint_commands', 'interpolated')):
+        for topic, source in ((JOINT_TARGETS_TOPIC, 'target'),
+                              (INTERPOLATED_COMMANDS_TOPIC, 'interpolated')):
             self.create_subscription(JointState, topic, partial(self.receive, source, SIDES), 1000)
         for arm in SIDES:
-            self.create_subscription(JointState, f'{arm}/joint_states',
+            self.create_subscription(JointState, arm_topic(arm, 'joint_states'),
                                      partial(self.receive, 'feedback', (arm,)), qos_profile_sensor_data)
         self.create_timer(1., self.recording.flush, clock=Clock(clock_type=ClockType.STEADY_TIME))
         self.get_logger().info(f'Recording generic joint streams to {self.recording.csv_path}')

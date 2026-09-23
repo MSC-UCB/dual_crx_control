@@ -19,7 +19,9 @@ import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import JointState
 
-from dual_crx_control.robot.joint_config import JOINT_NAMES, SIDES
+from dual_crx_control.robot.joint_config import (
+    INTERPOLATED_COMMANDS_TOPIC, JOINT_NAMES, JOINT_STATES_TOPIC,
+    JOINT_TARGETS_TOPIC, SIDES, arm_topic)
 
 
 pytestmark = pytest.mark.skipif(
@@ -29,7 +31,6 @@ pytestmark = pytest.mark.skipif(
 
 ROOT = Path(__file__).resolve().parents[1]
 DOMAIN = 192
-NAMESPACE = 'test_crx5ia'
 
 
 def spin(node, seconds):
@@ -54,27 +55,27 @@ def test_canonical_mock_launch_has_500hz_ruckig_stream(tmp_path, mode):
     with log_path.open('w') as log:
         process = subprocess.Popen(
             ['ros2', 'launch', 'dual_crx_control', 'dual_arm.launch.py',
-             f'namespace:={NAMESPACE}', 'mock:=true', 'rviz:=false',
+             'mock:=true', 'rviz:=false',
              'method:=ruckig', 'input_rate_hz:=10.0',
              f'ruckig_target_mode:={mode}'],
             env=environment, stdout=log, stderr=subprocess.STDOUT,
             start_new_session=True)
     rclpy.init(domain_id=DOMAIN)
-    node = Node('issue2_ruckig_mock_probe', namespace=NAMESPACE)
+    node = Node('issue2_ruckig_mock_probe')
     feedback = []
     arm_feedback = {side: [] for side in SIDES}
     commands = []
-    targets = node.create_publisher(JointState, 'joint_targets', 1)
-    node.create_subscription(JointState, 'joint_states', feedback.append, 10)
+    targets = node.create_publisher(JointState, JOINT_TARGETS_TOPIC, 1)
+    node.create_subscription(JointState, JOINT_STATES_TOPIC, feedback.append, 10)
     for side in SIDES:
-        node.create_subscription(JointState, f'{side}/joint_states',
+        node.create_subscription(JointState, arm_topic(side, 'joint_states'),
                                  arm_feedback[side].append, 10)
-    node.create_subscription(JointState, 'interpolated_joint_commands', commands.append, 100)
+    node.create_subscription(JointState, INTERPOLATED_COMMANDS_TOPIC, commands.append, 100)
     try:
         def has_complete_feedback():
             required = {name for side in SIDES for name in JOINT_NAMES[side]}
             return (targets.get_subscription_count() > 0
-                    and node.count_publishers('interpolated_joint_commands') > 0
+                    and node.count_publishers(INTERPOLATED_COMMANDS_TOPIC) > 0
                     and all(arm_feedback[side] for side in SIDES)
                     and any(required.issubset(message.name)
                             and len(message.name) == len(message.position)

@@ -101,7 +101,7 @@ Run only one control launch and one motion-command source for the same pair of a
 | --- | --- | --- |
 | Run predefined trajectories | `dual_arm.launch.py` | One of the trajectory scripts below |
 | Move a TCP with the keyboard | `dual_arm.launch.py method:=ruckig` | `keyboard_control.py` |
-| Connect an external teleoperation program | `dual_arm.launch.py namespace:=crx5ia` | Publish `JointState` to `/crx5ia/joint_targets` |
+| Connect an external teleoperation program | `dual_arm.launch.py` | Publish `JointState` to `/crx5ia/joint_targets` |
 
 ### Predefined trajectories
 
@@ -162,7 +162,7 @@ For a low-frequency reference stream, opt in explicitly:
 
 ```bash
 ros2 launch dual_crx_control dual_arm.launch.py \
-  namespace:=crx5ia mock:=true rviz:=false method:=ruckig \
+  mock:=true rviz:=false method:=ruckig \
   input_rate_hz:=10.0 ruckig_target_mode:=stream \
   ruckig_target_timeout:=0.2
 ```
@@ -205,37 +205,37 @@ The keyboard program does not record automatically. To record a session, run the
 ### External teleoperation
 
 External teleoperation publishes a generic, named `sensor_msgs/msg/JointState`
-target stream. The canonical launch is namespaced so multiple CRX stacks can
-run without global topic collisions; use mock hardware for headless testing.
+target stream. This package owns one fixed CRX5IA topic tree; use mock hardware
+for headless testing.
 
 ```bash
 ros2 launch dual_crx_control dual_arm.launch.py \
-  namespace:=crx5ia mock:=true rviz:=false method:=linear input_rate_hz:=100.0
+  mock:=true rviz:=false method:=linear input_rate_hz:=100.0
 ```
 
-The retargeting script connects to the same namespace:
+The retargeting script connects to the same fixed `/crx5ia` topic tree:
 
 ```bash
 .venv/bin/python scripts/run_crx_joint_teleop.py \
-  --namespace crx5ia --command-hz 20 --publish-hz 100 \
+  --command-hz 20 --publish-hz 100 \
   --output-interpolation cubic --interpolation-horizon-ms 50
 ```
 
 The target message contains `left_J1`–`left_J6` and `right_J1`–`right_J6` in
-radians. The merged measured feedback is read from `joint_states`. The core
+radians. The merged measured feedback is read from `/crx5ia/joint_states`. The core
 interpolator publishes the accepted command stream at 500 Hz and holds the last
 accepted target until a fresh target arrives. The legacy
-Legacy `dual_arm_teleop.launch.py`, `teleop_bridge`, and `/teleop/*` topics
-have been removed. External publishers must use the generic namespaced interface.
+`dual_arm_teleop.launch.py`, `teleop_bridge`, and `/teleop/*` topics
+have been removed. External publishers must use the fixed `/crx5ia` interface.
 
-| Relative topic (under `namespace`) | Message type | Content |
+| Fixed topic | Message type | Content |
 | --- | --- | --- |
-| `joint_targets` | `sensor_msgs/msg/JointState` | One complete arm or both arms, by fixed joint name |
-| `joint_states` | `sensor_msgs/msg/JointState` | Merged measured feedback for both arms |
-| `interpolated_joint_commands` | `sensor_msgs/msg/JointState` | Core interpolated command stream |
-| `left/joint_states`, `right/joint_states` | `sensor_msgs/msg/JointState` | Individual arm feedback |
+| `/crx5ia/joint_targets` | `sensor_msgs/msg/JointState` | One complete arm or both arms, by fixed joint name |
+| `/crx5ia/joint_states` | `sensor_msgs/msg/JointState` | Merged measured feedback for both arms |
+| `/crx5ia/interpolated_joint_commands` | `sensor_msgs/msg/JointState` | Core interpolated command stream |
+| `/crx5ia/left/joint_states`, `/crx5ia/right/joint_states` | `sensor_msgs/msg/JointState` | Individual arm feedback |
 
-For the default namespace, inspect the stream with:
+Inspect the fixed stream with:
 
 ```bash
 ros2 topic echo /crx5ia/joint_states --once

@@ -6,6 +6,22 @@ INITIAL_JOINTS_DEG = {
     'right': [-90., 0., 180., 0., 90., 0.],
 }
 
+# The control stack is intentionally a single, fixed CRX5IA instance.  Keep
+# these names absolute so motion tools work from the root ROS namespace and do
+# not depend on a launch-time namespace or a caller's remapping.
+TOPIC_NAMESPACE = '/crx5ia'
+JOINT_TARGETS_TOPIC = f'{TOPIC_NAMESPACE}/joint_targets'
+JOINT_STATES_TOPIC = f'{TOPIC_NAMESPACE}/joint_states'
+INTERPOLATED_COMMANDS_TOPIC = f'{TOPIC_NAMESPACE}/interpolated_joint_commands'
+ROBOT_DESCRIPTION_TOPIC = f'{TOPIC_NAMESPACE}/robot_description'
+INTERPOLATION_NODE = f'{TOPIC_NAMESPACE}/joint_interpolation'
+
+
+def arm_topic(side, suffix):
+    """Return an absolute topic for one fixed CRX5IA arm."""
+    side = canonical_side(side)
+    return f'{TOPIC_NAMESPACE}/{side}/{suffix.lstrip("/")}'
+
 
 def canonical_side(namespace):
     aliases = {'robot1': 'right', 'robot2': 'left', '': 'left'}
