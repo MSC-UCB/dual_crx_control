@@ -14,7 +14,7 @@ Usage: ros2 launch dual_crx_control dual_arm.launch.py argument:=value
     ros2 launch dual_crx_control dual_arm.launch.py --show-args
 
 Main arguments and defaults:
-    mock:=true; rviz:=true; method:=linear (choices: linear / cubic / ruckig).
+    mock:=true; rviz:=true; method:=ruckig (choices: linear / cubic / ruckig).
     input_rate_hz:=50.0: expected target frequency; valid range: 0 < Hz <= 500.
     linear/cubic use 1/input_rate_hz as the transition time; match the actual input rate.
     ruckig_target_mode:=waypoint keeps rest-to-rest targets; stream is explicit opt-in.
@@ -149,8 +149,8 @@ def generate_launch_description():
         DeclareLaunchArgument("right_robot_ip", default_value="192.168.10.200"),
         DeclareLaunchArgument("left_robot_ip", default_value="192.168.10.100"),
         DeclareLaunchArgument("input_rate_hz", default_value="50.0"),
-        DeclareLaunchArgument("method", default_value="linear", choices=["linear", "cubic", "ruckig"]),
-        DeclareLaunchArgument("ruckig_target_mode", default_value="waypoint",
+        DeclareLaunchArgument("method", default_value="ruckig", choices=["linear", "cubic", "ruckig"]),
+        DeclareLaunchArgument("ruckig_target_mode", default_value="stream",
                               choices=["waypoint", "stream"],
                               description="Ruckig target semantics; stream is opt-in"),
         DeclareLaunchArgument("ruckig_target_timeout", default_value="0.2",
