@@ -146,8 +146,8 @@ def generate_launch_description():
     return LaunchDescription([
         DeclareLaunchArgument("mock", default_value="true", choices=["true", "false"]),
         DeclareLaunchArgument("rviz", default_value="true", choices=["true", "false"]),
-        DeclareLaunchArgument("right_robot_ip", default_value="192.168.10.200"),
-        DeclareLaunchArgument("left_robot_ip", default_value="192.168.10.100"),
+        DeclareLaunchArgument("right_robot_ip", default_value="192.168.1.100"),
+        DeclareLaunchArgument("left_robot_ip", default_value="192.168.2.100"),
         DeclareLaunchArgument("input_rate_hz", default_value="50.0"),
         DeclareLaunchArgument("method", default_value="ruckig", choices=["linear", "cubic", "ruckig"]),
         DeclareLaunchArgument("ruckig_target_mode", default_value="stream",
