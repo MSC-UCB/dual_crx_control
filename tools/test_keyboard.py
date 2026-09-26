@@ -18,6 +18,7 @@ import pytest
 
 from dual_crx_control.teleop.keyboard import (
     DEFAULTS, MOVES, JogTarget, KeyboardControl, Terminal, batch_key)
+from dual_crx_control.robot.joint_config import JOINT_TARGETS_TOPIC
 
 
 class Model:
@@ -160,7 +161,7 @@ def test_ros_mock_both_arms_and_watchdog():
         keyboard = KeyboardControl(read_key, parameter_overrides=[Parameter('robot_description', value=description)])
         nodes.append(keyboard)
         targets = []
-        keyboard.create_subscription(JointState, '/interpolation/joint_targets', targets.append, 10)
+        keyboard.create_subscription(JointState, JOINT_TARGETS_TOPIC, targets.append, 10)
         for node in nodes:
             executor.add_node(node)
         spin_until(lambda: keyboard.readiness_error() is None and len(keyboard.positions) == 2)

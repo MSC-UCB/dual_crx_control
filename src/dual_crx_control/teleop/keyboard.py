@@ -21,7 +21,9 @@ from std_msgs.msg import String
 
 from dual_crx_control.interpolation.client import JointTargetClient
 from dual_crx_control.robot.ik_solver import DampedLeastSquaresIK
-from dual_crx_control.robot.joint_config import JOINT_NAMES, SIDES, ordered_feedback
+from dual_crx_control.robot.joint_config import (
+    INTERPOLATION_NODE, JOINT_NAMES, ROBOT_DESCRIPTION_TOPIC, SIDES,
+    arm_topic, ordered_feedback)
 from dual_crx_control.robot.kinematics import CRXKinematics
 
 
@@ -111,14 +113,14 @@ class KeyboardControl(Node):
         self.models, self.solvers, self.positions, self.received = {}, {}, {}, {}
         self.description, self.model_fault = '', False
         self.target_clients = {s: JointTargetClient(self, arms=(s,)) for s in SIDES}
-        self.method_client = AsyncParameterClient(self, '/joint_interpolation')
+        self.method_client = AsyncParameterClient(self, INTERPOLATION_NODE)
         self.method_future = None
         self.method_checked = -float('inf')
         self.ruckig_ready = False
         for side in SIDES:
-            self.create_subscription(JointState, f'/{side}/joint_states',
+            self.create_subscription(JointState, arm_topic(side, 'joint_states'),
                                      partial(self.feedback, side), qos_profile_sensor_data)
-        self.create_subscription(String, '/robot_description', self.configure_message,
+        self.create_subscription(String, ROBOT_DESCRIPTION_TOPIC, self.configure_message,
                                  QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL))
         description = self.declare_parameter('robot_description', '').value
         if description:
@@ -182,7 +184,7 @@ class KeyboardControl(Node):
         if self.model_fault or not self.description:
             return 'robot description unavailable/invalid'
         if not self.ruckig_ready or now - self.method_checked > 2.5:
-            return 'waiting for /joint_interpolation with method=ruckig'
+            return f'waiting for {INTERPOLATION_NODE} with method=ruckig'
         if not self.target_clients[self.side].available():
             return 'missing interpolation subscriber'
         if now - self.received.get(self.side, -float('inf')) > self.settings['state_timeout']:

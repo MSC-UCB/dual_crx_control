@@ -26,8 +26,7 @@ install(PROGRAMS
   scripts/preplanned_trajectory/cartesian_circle.py
   scripts/preplanned_trajectory/facing_circle.py
   scripts/util/interpolation_node
-  scripts/util/teleop_bridge
-  scripts/analysis/record_teleoperation.py
+  scripts/analysis/record_joint_streams.py
   scripts/analysis/analyze_latency.py
   DESTINATION lib/${PROJECT_NAME}
 )
@@ -54,10 +53,6 @@ if(BUILD_TESTING AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_cartesian.py
   ament_add_pytest_test(facing_circle tests/test_facing_circle.py TIMEOUT 60)
   ament_add_pytest_test(latency tests/test_latency.py
     ENV ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST OPENBLAS_NUM_THREADS=1 TIMEOUT 60)
-  ament_add_pytest_test(teleop_bridge tests/test_teleop_bridge.py
-    ENV ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST TIMEOUT 60)
-  ament_add_pytest_test(teleoperation_recording tests/test_teleoperation_recording.py
-    ENV ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST TIMEOUT 30)
   ament_add_pytest_test(simple_motion tests/test_simple_motion.py
     ENV ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST OPENBLAS_NUM_THREADS=1 TIMEOUT 90)
 
@@ -69,6 +64,9 @@ endif()
 
 if(BUILD_TESTING)
   find_package(ament_cmake_pytest REQUIRED)
+  ament_add_pytest_test(ruckig_timing tools/test_ruckig_timing.py TIMEOUT 60)
+  ament_add_pytest_test(ruckig_mock_launch tools/test_ruckig_mock_launch.py TIMEOUT 90
+    ENV ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST)
   ament_add_pytest_test(keyboard tools/test_keyboard.py TIMEOUT 60
     ENV PYTHONDONTWRITEBYTECODE=1 OPENBLAS_NUM_THREADS=1)
   ament_add_pytest_test(motion_refactor tools/test_motion_refactor.py TIMEOUT 60

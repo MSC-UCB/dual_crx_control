@@ -101,7 +101,7 @@ Run only one control launch and one motion-command source for the same pair of a
 | --- | --- | --- |
 | Run predefined trajectories | `dual_arm.launch.py` | One of the trajectory scripts below |
 | Move a TCP with the keyboard | `dual_arm.launch.py method:=ruckig` | `keyboard_control.py` |
-| Connect an external teleoperation program | `dual_arm_teleop.launch.py` | Publish to `/teleop/joint_command` |
+| Connect an external teleoperation program | `dual_arm.launch.py` | Publish `JointState` to `/crx5ia/joint_targets` |
 
 ### Predefined trajectories
 
@@ -157,6 +157,23 @@ In terminal 1, launch with Ruckig:
 ros2 launch dual_crx_control dual_arm.launch.py mock:=true rviz:=true method:=ruckig
 ```
 
+Ruckig keeps independent absolute targets as rest-to-rest waypoints by default.
+For a low-frequency reference stream, opt in explicitly:
+
+```bash
+ros2 launch dual_crx_control dual_arm.launch.py \
+  mock:=true rviz:=false method:=ruckig \
+  input_rate_hz:=10.0 ruckig_target_mode:=stream \
+  ruckig_target_timeout:=0.2
+```
+
+In `stream` mode, `input_rate_hz` describes the expected reference period. The
+interpolator estimates bounded target derivatives from arrival times and keeps
+tracking between samples. A dropout longer than `ruckig_target_timeout` changes
+the terminal derivatives to zero and holds the last target. The reference can
+therefore have up to one input period of phase lag; velocity, acceleration and
+jerk limits remain enforced. `waypoint` remains the default for motion scripts.
+
 In terminal 2, start keyboard input and keep that terminal focused:
 
 ```bash
@@ -187,63 +204,80 @@ The keyboard program does not record automatically. To record a session, run the
 
 ### External teleoperation
 
-External teleoperation requires the separate **Retargeting project** and a **Meta Quest device**. The Retargeting project will be released soon.
+External teleoperation publishes a generic, named `sensor_msgs/msg/JointState`
+target stream. This package owns one fixed CRX5IA topic tree; use mock hardware
+for headless testing.
 
 ```bash
-ros2 launch dual_crx_control dual_arm_teleop.launch.py \
-  mock:=true rviz:=true method:=linear input_rate_hz:=100.0 \
-  record:=true record_output_dir:="$PWD/teleop_recordings"
+ros2 launch dual_crx_control dual_arm.launch.py \
+  mock:=true rviz:=false method:=linear input_rate_hz:=100.0
 ```
 
-This starts the control system, `teleop_bridge`, and the recorder. Your external program must provide the targets; this launch does not generate a motion pattern.
+The retargeting script connects to the same fixed `/crx5ia` topic tree:
 
-| Topic | Message type | Content |
+```bash
+.venv/bin/python scripts/run_crx_joint_teleop.py \
+  --command-hz 20 --publish-hz 100 \
+  --output-interpolation cubic --interpolation-horizon-ms 50
+```
+
+The target message contains `left_J1`–`left_J6` and `right_J1`–`right_J6` in
+radians. The merged measured feedback is read from `/crx5ia/joint_states`. The core
+interpolator publishes the accepted command stream at 500 Hz and holds the last
+accepted target until a fresh target arrives. The legacy
+`dual_arm_teleop.launch.py`, `teleop_bridge`, and `/teleop/*` topics
+have been removed. External publishers must use the fixed `/crx5ia` interface.
+
+| Fixed topic | Message type | Content |
 | --- | --- | --- |
-| `/teleop/joint_command` | `std_msgs/msg/Float64MultiArray` | Exactly 12 finite values: left J1–J6, then right J1–J6, in **radians** |
-| `/teleop/joint_states` | `sensor_msgs/msg/JointState` | Combined measured feedback for both arms |
-| `/interpolation/joint_targets` | `sensor_msgs/msg/JointState` | Interpolator input; names and positions for one complete arm (6 joints) or both arms (12 joints) |
-| `/interpolation/joint_commands` | `sensor_msgs/msg/JointState` | Interpolated commands for monitoring or recording |
-| `/left/joint_states`, `/right/joint_states` | `sensor_msgs/msg/JointState` | Individual arm feedback |
+| `/crx5ia/joint_targets` | `sensor_msgs/msg/JointState` | One complete arm or both arms, by fixed joint name |
+| `/crx5ia/joint_states` | `sensor_msgs/msg/JointState` | Merged measured feedback for both arms |
+| `/crx5ia/interpolated_joint_commands` | `sensor_msgs/msg/JointState` | Core interpolated command stream |
+| `/crx5ia/left/joint_states`, `/crx5ia/right/joint_states` | `sensor_msgs/msg/JointState` | Individual arm feedback |
 
-Joint names are fixed: `left_J1`–`left_J6` and `right_J1`–`right_J6`. Read measured feedback to establish an initial target, then publish your targets continuously. The launch above expects a 100 Hz input stream.
+Inspect the fixed stream with:
 
 ```bash
-ros2 topic echo /teleop/joint_states --once
-ros2 topic hz /teleop/joint_command
+ros2 topic echo /crx5ia/joint_states --once
+ros2 topic hz /crx5ia/joint_targets
+ros2 topic hz /crx5ia/interpolated_joint_commands
 ```
-
-`state_publish_rate` controls the merged feedback rate; it does not throttle incoming commands. Use `record:=false` to disable automatic recording.
-
-Set `record_output_dir` to a writable location as shown above. The launch file has a machine-specific default, so explicitly setting this argument is recommended when sharing the package across workstations.
 
 ## ROS topics
 
-These are the topics normally used by the launch files and motion programs:
+The canonical launch uses a namespace (default `crx5ia`). The paths below show
+the default fully qualified names; remove the `/crx5ia` prefix when referring to
+relative names inside a namespaced node.
 
 | Topic | Type | Direction and purpose |
 | --- | --- | --- |
-| `/left/joint_states` | `sensor_msgs/msg/JointState` | Published by the left driver; read by the interpolator, motion scripts, keyboard control, and recorder |
-| `/right/joint_states` | `sensor_msgs/msg/JointState` | Published by the right driver; read by the interpolator, motion scripts, keyboard control, and recorder |
-| `/interpolation/joint_targets` | `sensor_msgs/msg/JointState` | Motion programs and `teleop_bridge` publish targets here; the interpolation node subscribes |
-| `/interpolation/joint_commands` | `sensor_msgs/msg/JointState` | The interpolation node publishes the interpolated joint command stream; motion scripts and recorders read it |
-| `/left/forward_position_controller/commands` | `std_msgs/msg/Float64MultiArray` | The interpolation node publishes six left-arm joint positions to the controller |
-| `/right/forward_position_controller/commands` | `std_msgs/msg/Float64MultiArray` | The interpolation node publishes six right-arm joint positions to the controller |
-| `/teleop/joint_command` | `std_msgs/msg/Float64MultiArray` | External teleoperation input: 12 radians, left J1–J6 followed by right J1–J6 |
-| `/teleop/joint_states` | `sensor_msgs/msg/JointState` | `teleop_bridge` publishes merged feedback for both arms |
-| `/robot_description` | `std_msgs/msg/String` | The robot state publisher provides the URDF; Cartesian and keyboard nodes can read it |
+| `/crx5ia/left/joint_states` | `sensor_msgs/msg/JointState` | Left driver feedback |
+| `/crx5ia/right/joint_states` | `sensor_msgs/msg/JointState` | Right driver feedback |
+| `/crx5ia/joint_states` | `sensor_msgs/msg/JointState` | Merged measured feedback |
+| `/crx5ia/joint_targets` | `sensor_msgs/msg/JointState` | External or motion target input; one arm or both |
+| `/crx5ia/interpolated_joint_commands` | `sensor_msgs/msg/JointState` | 500 Hz interpolated command stream |
+| `/crx5ia/left/forward_position_controller/commands` | `std_msgs/msg/Float64MultiArray` | Left controller command |
+| `/crx5ia/right/forward_position_controller/commands` | `std_msgs/msg/Float64MultiArray` | Right controller command |
 
-Joint names are fixed as `left_J1`–`left_J6` and `right_J1`–`right_J6`. A normal trajectory command therefore follows this path:
+Joint names are fixed as `left_J1`–`left_J6` and `right_J1`–`right_J6`. A normal
+command follows:
 
 ```text
-motion script / teleop_bridge
-        -> /interpolation/joint_targets
+external publisher / motion script
+        -> /crx5ia/joint_targets
         -> interpolation_node
-        -> /left|right/forward_position_controller/commands
+        -> /crx5ia/left|right/forward_position_controller/commands
         -> arm driver
-        -> /left|right/joint_states
+        -> /crx5ia/left|right/joint_states
+        -> /crx5ia/joint_states
 ```
 
-The interpolator publishes at 500 Hz. `input_rate_hz` sets the expected input rate and interpolation horizon for linear/cubic modes; it does not throttle the motion script or external publisher. Use `ros2 topic list`, `ros2 topic info <topic>`, and `ros2 topic echo <topic> --once` to inspect a running system.
+The interpolator publishes at 500 Hz. For linear/cubic modes, `input_rate_hz`
+sets the expected input rate and interpolation horizon; it does not throttle the
+target publisher. For Ruckig, it sets the reference period only when
+`ruckig_target_mode:=stream`; waypoint mode keeps its limit-selected arrival
+time. Use `ros2 topic list`, `ros2 topic info <topic>`, and
+`ros2 topic echo <topic> --once` to inspect a running system.
 
 ## Recording and analysis
 
@@ -256,11 +290,11 @@ By default, trajectory scripts save results under `motion_recordings/<timestamp>
 For keyboard control or another command source, start the standalone recorder and press `Ctrl+C` when finished to save its plots:
 
 ```bash
-ros2 run dual_crx_control record_teleoperation.py --ros-args \
-  -p output_dir:="$PWD/teleop_recordings"
+ros2 run dual_crx_control record_joint_streams.py --ros-args \
+  -p output_dir:="$PWD/joint_recordings"
 ```
 
-Do not start a duplicate recorder when the teleoperation launch already has recording enabled. Trajectory recordings label targets as `target`; the standalone/teleoperation recorder labels them as `telebridge`. Interpolated commands and feedback use `interpolated` and `feedback`.
+The canonical `dual_arm.launch.py` does not start a recorder automatically. All recorders label sources as `target`, `interpolated`, and `feedback`.
 
 To estimate the delay between interpolated commands and feedback, replace the CSV path with an actual recording:
 
@@ -305,10 +339,10 @@ There is also a `dual_arm_readonly.launch.py` using the driver's `motion_control
 Useful checks:
 
 ```bash
-ros2 control list_controllers -c /left/controller_manager
-ros2 control list_controllers -c /right/controller_manager
-ros2 topic echo /left/joint_states --once
-ros2 topic echo /right/joint_states --once
+ros2 control list_controllers -c /crx5ia/left/controller_manager
+ros2 control list_controllers -c /crx5ia/right/controller_manager
+ros2 topic echo /crx5ia/left/joint_states --once
+ros2 topic echo /crx5ia/right/joint_states --once
 ```
 
 ## Development and advanced tools
