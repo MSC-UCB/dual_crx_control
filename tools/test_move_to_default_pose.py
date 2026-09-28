@@ -10,6 +10,7 @@ import pytest
 SCRIPT = Path(__file__).resolve().parents[1] / 'scripts/move_to_default_pose.py'
 if not SCRIPT.exists():
     SCRIPT = Path(__file__).with_name('move_to_default_pose.py')
+sys.path.insert(0, str(SCRIPT.parent.parent / 'src'))
 spec = importlib.util.spec_from_file_location('default_pose', SCRIPT)
 motion = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(motion)
@@ -22,10 +23,17 @@ def description():
 
 
 def test_pendant_roundtrip():
+    expected_ros_degrees = {
+        'left': [0, 30, -30, 0, 60, 0],
+        'right': [-90, -30, 210, 0, -60, 0],
+    }
     for side, q in motion.default_targets().items():
         degrees = np.degrees(q)
+        np.testing.assert_allclose(degrees, expected_ros_degrees[side], atol=1e-12)
         degrees[2] -= degrees[1]
-        np.testing.assert_allclose(degrees, motion.PENDANT_DEGREES[side], atol=1e-12)
+        expected_pendant = ([0, 30, -60, 0, 60, 0] if side == 'left'
+                            else [-90, -30, 240, 0, -60, 0])
+        np.testing.assert_allclose(degrees, expected_pendant, atol=1e-12)
 
 
 def test_description_limits_and_invalid_data():

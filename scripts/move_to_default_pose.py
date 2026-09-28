@@ -16,20 +16,11 @@ import xml.etree.ElementTree as ET
 
 import numpy as np
 
-
-PENDANT_DEGREES = {
-    'left': [0., 30., -60., 0., 60., 90.],
-    'right': [-90., -30., 240., 0., -60., -90.],
-}
+from dual_crx_control.robot.initial_pose import load_initial_radians
 
 
 def default_targets():
-    targets = {}
-    for side, angles in PENDANT_DEGREES.items():
-        q = np.radians(angles)
-        q[2] += q[1]  # Pendant -> ROS; never apply this to ROS feedback.
-        targets[side] = q
-    return targets
+    return {side: np.asarray(q) for side, q in load_initial_radians().items()}
 
 
 class JointLimits:
@@ -178,7 +169,9 @@ def execute(args):
 def main(argv=None):
     args = parse_args(argv)
     for side, target in default_targets().items():
-        print(f'{side}: pendant degrees={PENDANT_DEGREES[side]}', flush=True)
+        pendant = np.degrees(target)
+        pendant[2] -= pendant[1]  # Display only; config and commands use ROS angles.
+        print(f'{side}: pendant degrees={pendant.round(6).tolist()}', flush=True)
         print(f'  ROS degrees={np.degrees(target).round(6).tolist()}, radians={target.tolist()}', flush=True)
     if not args.execute:
         print('Preview only. Add --execute to move; stop other motion senders and check the path first.')

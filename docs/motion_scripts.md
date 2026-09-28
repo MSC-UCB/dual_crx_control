@@ -98,6 +98,29 @@ It uses current measured joints as the center, without moving to a home pose.
 - `--latency-csv` retains optional bounded event tracing, including `generated`, `target`,
   `target_publish_return`, interpolated `command`, and `feedback`.
 
+### Shared initial pose
+
+Edit `config/initial_pose.yaml` for both arms, in ROS / URDF degrees ordered J1–J6.
+This controls `simple_motion.py`, the three Cartesian entrypoints,
+`move_to_default_pose.py`, canonical launch mock state and `tools/dual_mock_robot.py`.
+FANUC pendant J3 differs: `J3_ROS = J3_pendant + J2_pendant`.
+
+`mock:=false` returns the driver description without injecting initial positions;
+launching it does not command a move to this pose. `joint_sine.py` continues to
+start from measured joints. Restart consumers after editing the YAML; there is no
+live reload during a trajectory. Cartesian `--left-initial-deg` and
+`--right-initial-deg` / ROS parameter overrides remain available for individual runs.
+
+Source checkouts and symlink installs read the source config; ordinary installs
+read the package share config through the ament index. Build with
+`colcon build --symlink-install --packages-select dual_crx_control` and source the
+workspace after adding the config. Missing or malformed config is an error.
+
+Offline checks cover source/installed config loading, mock position injection,
+the real-driver branch leaving its description unchanged, initial CLI overrides,
+and both facing-circle presets from the new pose (approach plus one full lap).
+These are model/IK checks; no physical motion or collision validation was performed.
+
 ### Cartesian options
 
 The controllers retain their initial approach, IK, joint limits, feedback freshness,

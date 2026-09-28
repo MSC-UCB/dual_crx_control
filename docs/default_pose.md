@@ -1,17 +1,26 @@
 # Move once to the Sharpa default pose
 
 `scripts/move_to_default_pose.py` is a source-only entry point. It reuses the
-installed `dual_crx_control` Python package; no rebuild is needed for this script.
+installed `dual_crx_control` Python package. Build/source the updated package once
+to install the shared pose loader and `config/initial_pose.yaml`. Subsequent source
+config edits take effect on the next invocation with a symlink install.
 
 Joint order is J1 through J6:
 
 | Convention | Left (degrees) | Right (degrees) |
 | --- | --- | --- |
-| FANUC pendant | 0, 30, -60, 0, 60, 90 | -90, -30, 240, 0, -60, -90 |
-| ROS / URDF | 0, 30, -30, 0, 60, 90 | -90, -30, 210, 0, -60, -90 |
+| FANUC pendant | 0, 30, -60, 0, 60, 0 | -90, -30, 240, 0, -60, 0 |
+| ROS / URDF | 0, 30, -30, 0, 60, 0 | -90, -30, 210, 0, -60, 0 |
 
-The script converts pendant J3 using `J3_ROS = J3_pendant + J2_pendant`, then
-publishes radians. It never converts feedback or ROS targets a second time.
+Both J6 targets are zero, matching the CRX + Sharpa robot configs in
+`retargeting_crx`. ROS teleoperation uses measured feedback for calibration;
+changing its configured initial pose does not automatically move the arms.
+Mock startup, planned-motion scripts and this script all read
+`config/initial_pose.yaml`. Its values use ROS / URDF degrees, J1 through J6.
+
+The script converts the configured ROS degrees to radians for publication.
+Pendant J3 is derived only for display: `J3_pendant = J3_ROS - J2_ROS`.
+It never applies pendant-to-ROS conversion to the configured targets or feedback.
 
 Source ROS and the workspace in your terminal:
 

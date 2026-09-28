@@ -55,14 +55,15 @@ source install/setup.bash
 
 ## Quick start: a small joint motion in mock mode
 
-Before start, please jog the robot near the following pose
+Mock startup uses [config/initial_pose.yaml](config/initial_pose.yaml):
 
-| Arm | J1–J6, degrees |
+| Arm | J1–J6, ROS / URDF degrees |
 | --- | --- |
-| Left | `0, 0, 0, 0, -90, 0` |
-| Right | `-90, 0, 180, 0, 90, 0` |
+| Left | `0, 30, -30, 0, 60, 0` |
+| Right | `-90, -30, 210, 0, -60, 0` |
 
-Then make sure there is no alarm and the manual mode is off.
+`mock:=false` uses measured hardware state and does not apply this initial pose.
+Starting a motion script separately can command an initial approach.
 
 ![Dual CRX control system overview](docs/images/robot_overview.png)
 
@@ -124,12 +125,12 @@ ros2 run dual_crx_control cartesian_circle.py --plane xy --radius-m 0.02 --direc
 ros2 run dual_crx_control facing_circle.py --plane xz --radius-m 0.1 --direction cw --period 3 --cycles 10 --rate 50
 ```
 
-`simple_motion.py` and the Cartesian scripts **start automatically when ready**. By default, they first approach these configured initial joint positions:
+`simple_motion.py` and the Cartesian scripts **start automatically when ready**. By default, they first approach the shared [config/initial_pose.yaml](config/initial_pose.yaml) positions:
 
-| Arm | J1–J6, degrees |
+| Arm | J1–J6, ROS / URDF degrees |
 | --- | --- |
-| Left | `0, 0, 0, 0, -90, 0` |
-| Right | `-90, 0, 180, 0, 90, 0` |
+| Left | `0, 30, -30, 0, 60, 0` |
+| Right | `-90, -30, 210, 0, -60, 0` |
 
 A small trajectory amplitude therefore does not imply a small total move from the current pose. `joint_sine.py` instead uses the current measured joints as its center, without this initial-pose move. Its default amplitude is 20 degrees; explicitly set a small amplitude for initial trials, as in the examples.
 

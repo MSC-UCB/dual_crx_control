@@ -15,6 +15,8 @@ Usage: ros2 launch dual_crx_control dual_arm.launch.py argument:=value
 
 Main arguments and defaults:
     mock:=true; rviz:=true; method:=ruckig (choices: linear / cubic / ruckig).
+    Mock initial positions come from config/initial_pose.yaml. mock:=false uses
+    measured hardware state; this launch does not command an initial-pose move.
     input_rate_hz:=50.0: expected target frequency; valid range: 0 < Hz <= 500.
     linear/cubic use 1/input_rate_hz as the transition time; match the actual input rate.
     ruckig_target_mode:=waypoint keeps rest-to-rest targets; stream is explicit opt-in.

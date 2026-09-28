@@ -1,10 +1,10 @@
 """Joint names and initial software-mock configuration (radians at interfaces)."""
 SIDES = ('left', 'right')
 JOINT_NAMES = {side: [f'{side}_J{i}' for i in range(1, 7)] for side in SIDES}
-INITIAL_JOINTS_DEG = {
-    'left': [0., 0., 0., 0., -90., 0.],
-    'right': [-90., 0., 180., 0., 90., 0.],
-}
+# Compatibility export for motion consumers; values come only from YAML.
+from .initial_pose import load_initial_degrees
+
+INITIAL_JOINTS_DEG = load_initial_degrees()
 
 # The control stack is intentionally a single, fixed CRX5IA instance.  Keep
 # these names absolute so motion tools work from the root ROS namespace and do
