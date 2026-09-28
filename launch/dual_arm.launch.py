@@ -14,7 +14,7 @@ Usage: ros2 launch dual_crx_control dual_arm.launch.py argument:=value
     ros2 launch dual_crx_control dual_arm.launch.py --show-args
 
 Main arguments and defaults:
-    mock:=true; rviz:=true; method:=ruckig (choices: linear / cubic / ruckig).
+    mock:=true; rviz:=true; method:=ruckig (choices: linear / cubic / ruckig / quintic).
     Mock initial positions come from config/initial_pose.yaml. mock:=false uses
     measured hardware state; this launch does not command an initial-pose move.
     input_rate_hz:=50.0: expected target frequency; valid range: 0 < Hz <= 500.
@@ -24,6 +24,9 @@ Main arguments and defaults:
     returns to hold after a dropout. Stream mode may add up to one reference period of
     phase lag while preserving the configured velocity, acceleration and jerk limits.
     In waypoint mode Ruckig uses limits, not input_rate_hz, to set arrival time.
+    method:=quintic spreads a zero-terminal-velocity/acceleration transition over
+    one nominal input period, extending it when derivative limits require more time.
+    It preserves planned q/v/a on retarget; Ruckig mode/timeout arguments do not apply.
     All methods output at 500 Hz; input_rate_hz does not change the sender's frequency.
     left_robot_ip:=192.168.10.100; right_robot_ip:=192.168.10.200.
 
@@ -151,7 +154,7 @@ def generate_launch_description():
         DeclareLaunchArgument("right_robot_ip", default_value="192.168.1.100"),
         DeclareLaunchArgument("left_robot_ip", default_value="192.168.2.100"),
         DeclareLaunchArgument("input_rate_hz", default_value="50.0"),
-        DeclareLaunchArgument("method", default_value="ruckig", choices=["linear", "cubic", "ruckig"]),
+        DeclareLaunchArgument("method", default_value="ruckig", choices=["linear", "cubic", "ruckig", "quintic"]),
         DeclareLaunchArgument("ruckig_target_mode", default_value="stream",
                               choices=["waypoint", "stream"],
                               description="Ruckig target semantics; stream is opt-in"),

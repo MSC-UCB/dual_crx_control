@@ -46,8 +46,8 @@ def wait_until(node, predicate, timeout=20.):
     assert predicate(), 'ROS mock condition timed out'
 
 
-@pytest.mark.parametrize('mode', ['waypoint', 'stream'])
-def test_canonical_mock_launch_has_500hz_ruckig_stream(tmp_path, mode):
+@pytest.mark.parametrize('method,mode', [('ruckig', 'waypoint'), ('ruckig', 'stream'), ('quintic', 'waypoint')])
+def test_canonical_mock_launch_has_500hz_ruckig_stream(tmp_path, method, mode):
     environment = dict(os.environ,
                        ROS_DOMAIN_ID=str(DOMAIN),
                        ROS_AUTOMATIC_DISCOVERY_RANGE='LOCALHOST')
@@ -56,7 +56,7 @@ def test_canonical_mock_launch_has_500hz_ruckig_stream(tmp_path, mode):
         process = subprocess.Popen(
             ['ros2', 'launch', 'dual_crx_control', 'dual_arm.launch.py',
              'mock:=true', 'rviz:=false',
-             'method:=ruckig', 'input_rate_hz:=10.0',
+             f'method:={method}', 'input_rate_hz:=10.0',
              f'ruckig_target_mode:={mode}'],
             env=environment, stdout=log, stderr=subprocess.STDOUT,
             start_new_session=True)

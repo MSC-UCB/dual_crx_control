@@ -175,6 +175,23 @@ the terminal derivatives to zero and holds the last target. The reference can
 therefore have up to one input period of phase lag; velocity, acceleration and
 jerk limits remain enforced. `waypoint` remains the default for motion scripts.
 
+For a third option that spreads a rest-to-rest transition over a full nominal
+input period, select the bounded quintic interpolator explicitly:
+
+```bash
+ros2 launch dual_crx_control dual_arm.launch.py \
+  mock:=true rviz:=false method:=quintic input_rate_hz:=10.0
+```
+
+This uses a five-degree polynomial, not Ruckig's time-optimal trajectory. Small
+feasible moves accelerate over the first half and decelerate over the second
+half of the period. Infeasible periods are extended to respect the same velocity,
+acceleration and jerk planning limits as Ruckig. New targets preserve the current
+planned position/velocity/acceleration; repeated identical targets do not restart
+the trajectory. Ruckig mode/timeout arguments do not apply. This favors smoothness
+over tracking latency, especially at high input rates. See
+[quintic interpolation and evaluation](docs/quintic_interpolation.md).
+
 In terminal 2, start keyboard input and keep that terminal focused:
 
 ```bash
@@ -277,7 +294,8 @@ The interpolator publishes at 500 Hz. For linear/cubic modes, `input_rate_hz`
 sets the expected input rate and interpolation horizon; it does not throttle the
 target publisher. For Ruckig, it sets the reference period only when
 `ruckig_target_mode:=stream`; waypoint mode keeps its limit-selected arrival
-time. Use `ros2 topic list`, `ros2 topic info <topic>`, and
+time. For quintic, it sets the nominal minimum transition time; derivative limits
+can extend that time. Use `ros2 topic list`, `ros2 topic info <topic>`, and
 `ros2 topic echo <topic> --once` to inspect a running system.
 
 ## Recording and analysis

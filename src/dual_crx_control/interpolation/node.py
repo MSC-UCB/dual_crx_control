@@ -40,9 +40,10 @@ class InterpolationNode(Node):
             'input_rate_hz', 50.0, ParameterDescriptor(read_only=True)).value)
         self.method = self.declare_parameter(
             'method', 'linear', ParameterDescriptor(read_only=True)).value
-        if self.method not in ('linear', 'cubic', 'ruckig'):
-            raise ValueError('method must be linear, cubic or ruckig')
+        if self.method not in ('linear', 'cubic', 'ruckig', 'quintic'):
+            raise ValueError('method must be linear, cubic, ruckig or quintic')
         self.ruckig = None
+        self.planner = None
         self.velocities = {}
         if self.method == 'ruckig':
             self.ruckig_target_mode = self.declare_parameter(
@@ -59,10 +60,23 @@ class InterpolationNode(Node):
                 input_period=1 / self.input_rate,
                 target_timeout=(self.ruckig_target_timeout
                                 if self.ruckig_target_mode == 'stream' else None))
+            self.planner = self.ruckig
             self.get_logger().info(
                 f'Ruckig at {OUTPUT_RATE_HZ:g} Hz; max velocity={MAX_VELOCITY} rad/s; '
                 f'experimental max acceleration={MAX_ACCELERATION} rad/s²; '
                 f'experimental max jerk={MAX_JERK} rad/s³')
+        elif self.method == 'quintic':
+            from dual_crx_control.interpolation.quintic import QuinticInterpolation
+            from dual_crx_control.interpolation.ruckig import (
+                MAX_VELOCITY, MAX_ACCELERATION, MAX_JERK)
+            self.planner = QuinticInterpolation(
+                1 / OUTPUT_RATE_HZ, input_period=1 / self.input_rate,
+                max_velocity=MAX_VELOCITY, max_acceleration=MAX_ACCELERATION,
+                max_jerk=MAX_JERK)
+            self.get_logger().info(
+                f'Quintic at {OUTPUT_RATE_HZ:g} Hz; nominal horizon={1/self.input_rate:g} s; '
+                'zero terminal velocity/acceleration; horizon extends to satisfy '
+                'the same experimental planning limits as Ruckig')
         self.positions, self.segments, self.last_q, self.last_publish = {}, {}, {}, {}
         self.history = {s: deque(maxlen=5) for s in SIDES}
         self.pending = None
@@ -79,7 +93,7 @@ class InterpolationNode(Node):
 
     def feedback(self, side, msg):
         # Feedback initializes an arm once; it is not a runtime watchdog.
-        if side in self.last_q or (self.ruckig is not None and side in self.ruckig.active):
+        if side in self.last_q or (self.planner is not None and side in self.planner.active):
             return
         if (len(msg.name) != len(msg.position) or len(set(msg.name)) != len(msg.name)
                 or not set(JOINT_NAMES[side]).issubset(msg.name)):
@@ -89,7 +103,7 @@ class InterpolationNode(Node):
         if not np.isfinite(q).all():
             return
         self.positions[side] = q
-        if self.ruckig is not None:
+        if self.planner is not None:
             velocity = dict(zip(msg.name, msg.velocity))
             if len(msg.velocity) == len(msg.name) and np.isfinite(msg.velocity).all():
                 self.velocities[side] = np.array([velocity[n] for n in JOINT_NAMES[side]])
@@ -114,8 +128,8 @@ class InterpolationNode(Node):
             self.get_logger().warning(f'Joint data rejected: {exc}', throttle_duration_sec=2.)
 
     def accept(self, commands):
-        if self.ruckig is not None:
-            self.ruckig.target(commands, self.positions, self.velocities,
+        if self.planner is not None:
+            self.planner.target(commands, self.positions, self.velocities,
                                timestamp=time.monotonic())
             return
         now = time.monotonic()
@@ -129,13 +143,13 @@ class InterpolationNode(Node):
         self.segments.update(segments)
 
     def tick(self):
-        if not self.segments and not (self.ruckig is not None and self.ruckig.active):
+        if not self.segments and not (self.planner is not None and self.planner.active):
             return
         now_ns = time.monotonic_ns()
         now = now_ns * 1e-9
-        if self.ruckig is not None:
+        if self.planner is not None:
             try:
-                commands = self.ruckig.step(timestamp=now)
+                commands = self.planner.step(timestamp=now)
             except RuntimeError as exc:
                 self.get_logger().error(f'{exc}; holding last published positions.', throttle_duration_sec=2.)
                 commands = {s: q.copy() for s, q in self.last_q.items()}

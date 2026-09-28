@@ -68,6 +68,7 @@ if(BUILD_TESTING)
   ament_add_pytest_test(initial_pose_motion tools/test_initial_pose_motion.py TIMEOUT 60)
   ament_add_pytest_test(default_pose tools/test_move_to_default_pose.py TIMEOUT 30)
   ament_add_pytest_test(ruckig_timing tools/test_ruckig_timing.py TIMEOUT 60)
+  ament_add_pytest_test(quintic tools/test_quintic.py TIMEOUT 60)
   ament_add_pytest_test(ruckig_mock_launch tools/test_ruckig_mock_launch.py TIMEOUT 90
     ENV ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST)
   ament_add_pytest_test(keyboard tools/test_keyboard.py TIMEOUT 60
