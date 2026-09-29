@@ -2,7 +2,8 @@
 import numpy as np
 from sensor_msgs.msg import JointState
 
-from dual_crx_control.robot.joint_config import JOINT_NAMES, SIDES, canonical_side
+from dual_crx_control.robot.joint_config import (
+    JOINT_NAMES, JOINT_TARGETS_TOPIC, SIDES, canonical_side)
 
 
 class JointTargetClient:
@@ -11,7 +12,7 @@ class JointTargetClient:
         if not selected:
             raise ValueError('at least one arm is required')
         self.arms = tuple(s for s in SIDES if s in selected)
-        self.publisher = node.create_publisher(JointState, '/interpolation/joint_targets', 1)
+        self.publisher = node.create_publisher(JointState, JOINT_TARGETS_TOPIC, 1)
         self.parts = {}
 
     def available(self):

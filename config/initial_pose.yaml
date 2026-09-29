@@ -1,0 +1,4 @@
+# ROS / URDF degrees, ordered J1 through J6 (not FANUC pendant J3).
+# Shared by planned motion, move_to_default_pose.py and software mock startup.
+left: [0, 30, -30, 0, 60, 0]
+right: [-90, -30, 210, 0, -60, 0]

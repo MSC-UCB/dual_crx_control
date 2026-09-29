@@ -35,10 +35,10 @@ Parameters (ROS --ros-args -p name:=value):
     max_joint_step=0.03         Maximum per-target joint change, radians.
     max_joint_velocity=0.5      Target increment / 0.02 s limit, rad/s.
     tracking_tolerance=0.1      Maximum target-to-feedback joint error, radians.
-    robot_description=''       Otherwise read transient-local /robot_description.
+    robot_description=''       Otherwise read transient-local /crx5ia/robot_description.
 Input checks run at 50 Hz; existing Ruckig interpolation outputs at 500 Hz with
 its configured velocity/acceleration/jerk limits, NOT a fixed 20 ms arrival time.
-The node requires /joint_interpolation to report method=ruckig before enabling.
+The node requires /crx5ia/joint_interpolation to report method=ruckig before enabling.
 
 Safety:
     No Cartesian displacement radius is enforced around the enable position.

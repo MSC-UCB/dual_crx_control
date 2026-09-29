@@ -1,12 +1,8 @@
 """Build driver descriptions with the selected real or mock hardware plugin."""
-import math
 import xml.etree.ElementTree as ET
 import xacro
 
-MOCK_INITIAL_POSITIONS = {
-    'left': [0.0, 0.0, 0.0, 0.0, -math.pi / 2, 0.0],
-    'right': [-math.pi / 2, 0.0, math.pi, 0.0, math.pi / 2, 0.0],
-}
+from .initial_pose import load_initial_radians
 
 
 def arm_description(xacro_path, side, robot_ip, mock):
@@ -19,7 +15,7 @@ def arm_description(xacro_path, side, robot_ip, mock):
     # The driver's mock macro does not expose initial-position arguments.
     # Add ros2_control's standard initial_value parameter to the expanded XML.
     root = ET.fromstring(description)
-    for index, position in enumerate(MOCK_INITIAL_POSITIONS[side], start=1):
+    for index, position in enumerate(load_initial_radians()[side], start=1):
         interface = root.find(
             f"ros2_control/joint[@name='{side}_J{index}']/state_interface[@name='position']")
         if interface is None:

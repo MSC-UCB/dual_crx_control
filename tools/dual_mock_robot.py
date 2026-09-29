@@ -21,7 +21,8 @@ from sensor_msgs.msg import JointState
 from std_msgs.msg import Float64MultiArray
 
 from dual_crx_control.robot.kinematics import CRXKinematics
-from dual_crx_control.robot.joint_config import INITIAL_JOINTS_DEG
+from dual_crx_control.robot.joint_config import (
+    INITIAL_JOINTS_DEG, JOINT_STATES_TOPIC, arm_topic)
 
 
 INITIAL = {side: np.radians(angles) for side, angles in INITIAL_JOINTS_DEG.items()}
@@ -40,11 +41,12 @@ class DualMockRobot(Node):
         for side, model in self.models.items():
             if not model.valid_joints(self.positions[side]):
                 raise ValueError(f'{side}: invalid initial joints')
-            self.arm_publishers[side] = self.create_publisher(JointState, f'/{side}/joint_states', 1)
+            self.arm_publishers[side] = self.create_publisher(
+                JointState, arm_topic(side, 'joint_states'), 1)
             self.create_subscription(Float64MultiArray,
-                                     f'/{side}/forward_position_controller/commands',
+                                     arm_topic(side, 'forward_position_controller/commands'),
                                      partial(self.command, side), 1)
-        self.combined = self.create_publisher(JointState, '/joint_states', 1)
+        self.combined = self.create_publisher(JointState, JOINT_STATES_TOPIC, 1)
         self.create_timer(1. / rate, self.publish_states, clock=Clock(clock_type=ClockType.STEADY_TIME))
         self.get_logger().info('Ideal software mock ready; missing commands hold last position.')
 
