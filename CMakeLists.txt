@@ -19,6 +19,7 @@ target_link_libraries(_ruckig PRIVATE ruckig::ruckig)
 install(TARGETS _ruckig LIBRARY DESTINATION "${PYTHON_INSTALL_DIR}/${PROJECT_NAME}")
 
 install(PROGRAMS
+  scripts/collision_force_limiter.py
   scripts/move_to_default_pose.py
   scripts/keyboard_control.py
   scripts/preplanned_trajectory/simple_motion.py
@@ -65,6 +66,10 @@ endif()
 
 if(BUILD_TESTING)
   find_package(ament_cmake_pytest REQUIRED)
+  ament_add_pytest_test(collision_force_limiter tools/test_collision_force_limiter.py TIMEOUT 90
+    ENV ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST ROS_DOMAIN_ID=183)
+  ament_add_pytest_test(collision_force_launch tools/test_collision_force_launch.py TIMEOUT 180
+    ENV ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST)
   ament_add_pytest_test(initial_pose tools/test_initial_pose.py TIMEOUT 60)
   ament_add_pytest_test(initial_pose_motion tools/test_initial_pose_motion.py TIMEOUT 60)
   ament_add_pytest_test(default_pose tools/test_move_to_default_pose.py TIMEOUT 30)

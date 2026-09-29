@@ -41,7 +41,9 @@ This launch starts the control stack. Run a motion script in another terminal, e
 simple_motion.py records its own CSV and generates left/right plots on completion or Ctrl+C.
 """
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, OpaqueFunction
+from launch.actions import DeclareLaunchArgument, EmitEvent, LogInfo, OpaqueFunction, RegisterEventHandler
+from launch.event_handlers import OnProcessExit
+from launch.events import Shutdown
 from launch.conditions import IfCondition
 from launch.substitutions import Command, LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
@@ -56,6 +58,7 @@ def launch_setup(context):
     prefix = f"/{namespace}"
     mock = LaunchConfiguration("mock").perform(context) == "true"
     read_only = LaunchConfiguration("read_only").perform(context) == "true"
+    collision_force_limit = LaunchConfiguration("collision_force_limit").perform(context) == "true"
     xacro_file = PathJoinSubstitution([
         FindPackageShare("dual_crx_control"), "urdf", "dual_crx.urdf.xacro",
     ])
@@ -119,6 +122,25 @@ def launch_setup(context):
                 LaunchConfiguration("ruckig_target_timeout"), value_type=float),
         }],
     )
+    limiter_actions = []
+    if collision_force_limit and not read_only:
+        limiter = Node(
+            package="dual_crx_control", executable="collision_force_limiter.py",
+            namespace=namespace, output="screen", parameters=[{
+                "collision_force_threshold_n": ParameterValue(
+                    LaunchConfiguration("collision_force_threshold_n"), value_type=float),
+            }], respawn=False,
+        )
+        limiter_actions = [
+            RegisterEventHandler(OnProcessExit(
+                target_action=limiter, on_exit=[EmitEvent(event=Shutdown(
+                    reason="Collision force limiter exited; stopping control launch"))])),
+            limiter,
+        ]
+    else:
+        limiter_actions = [LogInfo(msg=(
+            "Collision force limiter disabled: read_only mode" if read_only else
+            "Collision force limiter disabled: collision_force_limit=false"))]
     joint_state_merger = Node(
         package="joint_state_publisher", executable="joint_state_publisher",
         namespace=namespace, name="dual_crx_joint_state_merger", output="screen",
@@ -146,6 +168,7 @@ def launch_setup(context):
         robot2,
         *forward_spawners,
         *([] if read_only else [interpolation]),
+        *limiter_actions,
         joint_state_merger,
         robot_state_publisher,
         rviz,
@@ -159,6 +182,10 @@ def generate_launch_description():
         DeclareLaunchArgument("read_only", default_value="false", choices=["true", "false"],
                               description="Disable motion control, command controller and interpolation"),
         DeclareLaunchArgument("rviz", default_value="true", choices=["true", "false"]),
+        DeclareLaunchArgument("collision_force_limit", default_value="true", choices=["true", "false"],
+                              description="Latch a dual-arm stop on excessive force; disabled in read-only mode"),
+        DeclareLaunchArgument("collision_force_threshold_n", default_value="20.0",
+                              description="Stop both arms when any absolute force component exceeds this many N"),
         DeclareLaunchArgument("right_robot_ip", default_value="192.168.1.100"),
         DeclareLaunchArgument("left_robot_ip", default_value="192.168.2.100"),
         DeclareLaunchArgument("input_rate_hz", default_value="100.0"),

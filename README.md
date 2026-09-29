@@ -71,7 +71,7 @@ Starting a motion script separately can command an initial approach.
 
 ```bash
 ros2 launch dual_crx_control dual_arm.launch.py \
-  mock:=true rviz:=true method:=linear input_rate_hz:=50.0
+  mock:=true rviz:=true method:=linear input_rate_hz:=50.0 collision_force_limit:=false
 ```
 
 This starts both simulated arms, their controllers, the interpolation node, and RViz. Wait for the controllers to finish starting before sending motion commands. Use `rviz:=false` if a graphical display is unavailable.
@@ -95,6 +95,38 @@ When the motion finishes, the script saves joint CSV data and plots. The control
 To interrupt the motion, press `Ctrl+C` in terminal 2. The script stops sending targets and saves its recordings; the interpolator may finish the last accepted target before holding position. To end the mock session, then press `Ctrl+C` in terminal 1.
 
 Run only one control launch and one motion-command source for the same pair of arms. Stop the current command source before trying another mode below. If changing launch files or launch settings, stop the previous launch first.
+
+## Collision force stop
+
+`dual_arm.launch.py` enables `collision_force_limiter` by default. If either arm's
+`|Fx|`, `|Fy|`, or `|Fz|` exceeds **20 N**, it requests a stop of **both CRX arms**,
+deactivates their hardware to close Stream Motion, and stays latched until launch
+is restarted. It does not stop Sharpa finger motion. Only two options are exposed:
+
+```bash
+ros2 launch dual_crx_control dual_arm.launch.py mock:=false rviz:=false \
+  collision_force_limit:=true collision_force_threshold_n:=20.0
+```
+
+Both feedback streams, controllers, hardware and stop services must be ready,
+followed by a 3-second warmup. **Wait for `ARMED` before starting motion.** This
+warmup ignores force thresholds, not an entire scripted move to an initial pose;
+there is no command gate during startup. After arming, invalid force data or a
+0.2-second feedback dropout also triggers the latched stop. Startup that cannot
+arm within 180 seconds requests a stop and shuts down launch. Read-only mode does
+not start the limiter. Timing values are internal constants.
+
+Inspect `/crx5ia/collision_force_limiter/state` (`std_msgs/msg/String`): `WAITING`,
+`WARMUP`, `ARMED`, `TRIPPED`, or `STOP_FAILED`. Stop failures or unexpected limiter
+exit shut down the enclosing launch. Normal successful trips leave it running;
+clear the contact and stop external command publishers before restarting.
+
+For ordinary mock demonstrations without synthetic force feedback, use
+`collision_force_limit:=false`: mock wrench may be NaN and cannot arm the limiter.
+Do not infer sensor validity from an all-zero real-hardware wrench either; verify
+the FANUC force sensor/protocol and payload configuration. This software stop is
+not a hardware emergency stop, and real stopping latency has not been measured.
+See [design and validation](docs/collision_force_limiter.md).
 
 ## Read force/torque (wrench)
 
