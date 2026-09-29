@@ -17,6 +17,8 @@ Main arguments and defaults:
     mock:=true; rviz:=true; method:=quintic (choices: linear / cubic / ruckig / quintic).
     Mock initial positions come from config/initial_pose.yaml. mock:=false uses
     measured hardware state; this launch does not command an initial-pose move.
+    read_only:=true sets motion_control=0 and starts only state/wrench broadcasters,
+    without the forward position controller or interpolation node.
     input_rate_hz:=100.0: expected target frequency; valid range: 0 < Hz <= 500.
     linear/cubic use 1/input_rate_hz as the transition time; match the actual input rate.
     ruckig_target_mode:=waypoint keeps rest-to-rest targets; stream is explicit opt-in.
@@ -32,6 +34,8 @@ Main arguments and defaults:
 
 Input: /crx5ia/joint_targets (JointState; one complete arm or both arms).
 Joint names: left_J1..left_J6 / right_J1..right_J6.
+Wrench output: /crx5ia/{left,right}/force_torque_sensor_broadcaster/wrench
+    (WrenchStamped; automatically activated for each arm).
 This launch starts the control stack. Run a motion script in another terminal, e.g.:
     ros2 run dual_crx_control simple_motion.py --joint 1 --range-deg 1.5 --hold 2 --duration 20 --rate 50
 simple_motion.py records its own CSV and generates left/right plots on completion or Ctrl+C.
@@ -51,6 +55,7 @@ def launch_setup(context):
     namespace = "crx5ia"
     prefix = f"/{namespace}"
     mock = LaunchConfiguration("mock").perform(context) == "true"
+    read_only = LaunchConfiguration("read_only").perform(context) == "true"
     xacro_file = PathJoinSubstitution([
         FindPackageShare("dual_crx_control"), "urdf", "dual_crx.urdf.xacro",
     ])
@@ -62,9 +67,9 @@ def launch_setup(context):
         FindPackageShare("dual_crx_control"), "config", "dual_arm_controllers.yaml",
     ])
     right_description = arm_description(
-        driver_xacro, "right", LaunchConfiguration("right_robot_ip").perform(context), mock)
+        driver_xacro, "right", LaunchConfiguration("right_robot_ip").perform(context), mock, read_only)
     left_description = arm_description(
-        driver_xacro, "left", LaunchConfiguration("left_robot_ip").perform(context), mock)
+        driver_xacro, "left", LaunchConfiguration("left_robot_ip").perform(context), mock, read_only)
 
     # Driver descriptions own controller interfaces; the combined model owns global TF.
     right_state_publisher = Node(
@@ -97,7 +102,8 @@ def launch_setup(context):
         Node(
             package="controller_manager", executable="spawner", namespace=f"{namespace}/{side}",
             name="joint_controller_spawner", output="screen",
-            arguments=["joint_state_broadcaster", "forward_position_controller",
+            arguments=["joint_state_broadcaster", "force_torque_sensor_broadcaster",
+                       *([] if read_only else ["forward_position_controller"]),
                        "--controller-manager", f"{prefix}/{side}/controller_manager",
                        "--controller-manager-timeout", "180", "--param-file", controllers],
         )
@@ -139,7 +145,7 @@ def launch_setup(context):
         robot1,
         robot2,
         *forward_spawners,
-        interpolation,
+        *([] if read_only else [interpolation]),
         joint_state_merger,
         robot_state_publisher,
         rviz,
@@ -150,6 +156,8 @@ def generate_launch_description():
     # Resolve mock/IP arguments before expanding driver Xacro descriptions.
     return LaunchDescription([
         DeclareLaunchArgument("mock", default_value="true", choices=["true", "false"]),
+        DeclareLaunchArgument("read_only", default_value="false", choices=["true", "false"],
+                              description="Disable motion control, command controller and interpolation"),
         DeclareLaunchArgument("rviz", default_value="true", choices=["true", "false"]),
         DeclareLaunchArgument("right_robot_ip", default_value="192.168.1.100"),
         DeclareLaunchArgument("left_robot_ip", default_value="192.168.2.100"),

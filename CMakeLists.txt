@@ -19,6 +19,7 @@ target_link_libraries(_ruckig PRIVATE ruckig::ruckig)
 install(TARGETS _ruckig LIBRARY DESTINATION "${PYTHON_INSTALL_DIR}/${PROJECT_NAME}")
 
 install(PROGRAMS
+  scripts/move_to_default_pose.py
   scripts/keyboard_control.py
   scripts/preplanned_trajectory/simple_motion.py
   scripts/preplanned_trajectory/joint_sine.py

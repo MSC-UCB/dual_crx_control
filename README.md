@@ -401,7 +401,7 @@ There is also a `dual_arm_readonly.launch.py` using the driver's `motion_control
 | RViz cannot open | Check the graphical display environment, or run mock mode with `rviz:=false` |
 | Missing or unloadable `_ruckig` | Check that the native extension built successfully and that the active ROS/Python environment matches the build |
 | Recording directory is not writable | Set `--output-dir`, `record_output_dir`, or the recorder's `output_dir` to a writable location |
-| Missing `record_wrench.py` or `wrench` option | This version has neither that executable nor that launch argument; use the joint-recording workflow above |
+| Missing wrench data | `dual_arm.launch.py` automatically activates `force_torque_sensor_broadcaster` for each arm; check `/crx5ia/{left,right}/force_torque_sensor_broadcaster/wrench` and controller status. Real force data requires `mock:=false`; no `wrench` launch option is needed |
 
 Useful checks:
 

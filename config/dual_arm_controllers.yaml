@@ -5,6 +5,8 @@
       type: joint_state_broadcaster/JointStateBroadcaster
     forward_position_controller:
       type: forward_command_controller/ForwardCommandController
+    force_torque_sensor_broadcaster:
+      type: force_torque_sensor_broadcaster/ForceTorqueSensorBroadcaster
 
 /**/joint_state_broadcaster:
   ros__parameters:
@@ -21,3 +23,13 @@
   ros__parameters:
     joints: [right_J1, right_J2, right_J3, right_J4, right_J5, right_J6]
     interface_name: position
+
+/**/left/force_torque_sensor_broadcaster:
+  ros__parameters:
+    sensor_name: ft_sensor
+    frame_id: left_fanuc_flange
+
+/**/right/force_torque_sensor_broadcaster:
+  ros__parameters:
+    sensor_name: ft_sensor
+    frame_id: right_fanuc_flange
