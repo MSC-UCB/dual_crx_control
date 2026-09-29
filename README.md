@@ -104,6 +104,38 @@ Run only one control launch and one motion-command source for the same pair of a
 | Move a TCP with the keyboard | `dual_arm.launch.py method:=ruckig` | `keyboard_control.py` |
 | Connect an external teleoperation program | `dual_arm.launch.py` | Publish `JointState` to `/crx5ia/joint_targets` |
 
+### Return both arms to the default position
+
+The target positions come from [config/initial_pose.yaml](config/initial_pose.yaml),
+using the same left/right joint angles shown in the quick start. In terminal 1,
+start the control system with quintic interpolation and a 100 Hz input rate
+(the launch defaults):
+
+```bash
+ros2 launch dual_crx_control dual_arm.launch.py \
+  mock:=true rviz:=true method:=quintic input_rate_hz:=100.0
+```
+
+For physical arms, use `mock:=false` with the configured robot IP addresses.
+Stop any other motion-command source, then run this in terminal 2 after sourcing
+the workspace environment. The script is run directly from the source tree:
+
+```bash
+cd <workspace>
+# Preview the target joint angles without sending motion commands.
+python3 src/dual_crx_control/scripts/move_to_default_pose.py
+
+# Move both arms to the default position at a 100 Hz target publishing rate.
+python3 src/dual_crx_control/scripts/move_to_default_pose.py --execute --rate 100
+```
+
+With `--execute`, motion starts when feedback and the interpolator are ready.
+The planned move takes at least 5 seconds, with default speed and acceleration
+limits of 10 deg/s and 20 deg/s². The script exits after both arms settle at the
+target. It uses joint interpolation without collision planning; check the path
+before execution. `Ctrl+C` stops publishing, while the downstream interpolator
+retains its last target.
+
 ### Predefined trajectories
 
 Use these examples with the **50 Hz** launch from the quick start. Run one at a time.
