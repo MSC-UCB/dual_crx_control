@@ -96,6 +96,22 @@ To interrupt the motion, press `Ctrl+C` in terminal 2. The script stops sending 
 
 Run only one control launch and one motion-command source for the same pair of arms. Stop the current command source before trying another mode below. If changing launch files or launch settings, stop the previous launch first.
 
+## Read force/torque (wrench)
+
+With `dual_arm.launch.py mock:=false` running, source ROS and the workspace in
+another terminal. The wrench broadcasters start automatically. Run either command
+below to read an arm (Ctrl+C stops the display):
+
+```bash
+# Left arm
+ros2 topic echo /crx5ia/left/force_torque_sensor_broadcaster/wrench geometry_msgs/msg/WrenchStamped
+# Right arm
+ros2 topic echo /crx5ia/right/force_torque_sensor_broadcaster/wrench geometry_msgs/msg/WrenchStamped
+```
+
+`wrench.force` is in N; `wrench.torque` is in N·m. These commands only subscribe
+to feedback and do not send motion commands.
+
 ## Choose a control mode
 
 | Task | Launch | Command source |
