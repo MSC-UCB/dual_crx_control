@@ -24,16 +24,16 @@ from sensor_msgs.msg import JointState
 from std_msgs.msg import String
 
 from dual_crx_control.interpolation.client import JointTargetClient
-from dual_crx_control.robot.ik_solver import DampedLeastSquaresIK, pose_error
+from dual_crx_control.robot.ik_solver import DampedLeastSquaresIK
 from dual_crx_control.robot.joint_config import (
     JOINT_NAMES, JOINT_TARGETS_TOPIC, ROBOT_DESCRIPTION_TOPIC, SIDES, arm_topic, ordered_feedback)
 from dual_crx_control.robot.kinematics import CRXKinematics
 
 
 # ---- User settings: all axes are [x, y, z, rx, ry, rz], SI units. K is zero. ----
-M_DEFAULT = np.array([20., 20., 20., .08, .08, .08])
-D_DEFAULT = np.array([100., 100., 100., .4, .4, .4])
-DEADBAND = np.array([1.5, 1.5, 1.5, .03, .03, .03])
+M_DEFAULT = np.array([20., 20., 20., 1., 1., 1.])
+D_DEFAULT = np.array([100., 100., 100., 10., 10., 10.])
+DEADBAND = np.array([1.5, 1.5, 1.5, .06, .06, .06])
 FILTER_HZ = np.full(6, 8.)
 VELOCITY_LIMIT = np.array([.1, .1, .1, .5, .5, .5])
 SPEED_NORM_LIMIT = (.1, .5)
@@ -41,13 +41,13 @@ ACCELERATION_LIMIT = np.array([.25, .25, .25, 1., 1., 1.])
 CONTROL_HZ, GUI_HZ = 100., 20.
 ENABLE_RAMP_SEC, GAIN_SMOOTHING_SEC = .5, .3
 WRENCH_TIMEOUT_SEC, POSE_TIMEOUT_SEC = .1, .1
-POSITION_ERROR_M, ANGLE_ERROR_RAD = .02, math.radians(5.)
 DT_MIN_SEC, DT_MAX_SEC = .002, .05
 EULER_RATIO_LIMIT, MAX_SUBSTEPS = .25, 20
 IK_ITERATIONS, IK_BUDGET_SEC = 12, .008
-MAX_JOINT_STEP, MAX_JOINT_VELOCITY = .03, .5
+MAX_JOINT_STEP, MAX_JOINT_VELOCITY = .06, 1.0
 ENABLE_JOINT_SPEED = .02
 FRAME = {side: f'{side}_fanuc_flange' for side in SIDES}
+AXES = ('x', 'y', 'z', 'rx', 'ry', 'rz')
 LIMITER_TOPIC = '/crx5ia/collision_force_limiter/state'
 # No tare, extra gravity compensation, wrench transform or frame selector.
 
@@ -84,7 +84,7 @@ def se3_exp(increment):
     return result
 
 
-def integrate(pose, velocity, wrench, mass, damping, dt, gain=1.):
+def integrate(pose, velocity, wrench, mass, damping, dt, gain=1., axes=None):
     """Bounded semi-implicit Euler, including body-frame pose integration."""
     if not math.isfinite(dt) or not 0 < dt <= DT_MAX_SEC:
         raise ValueError('invalid integration dt')
@@ -92,6 +92,11 @@ def integrate(pose, velocity, wrench, mass, damping, dt, gain=1.):
     if count > MAX_SUBSTEPS:
         raise ValueError('integration substep budget exceeded')
     h, pose, velocity = dt / count, pose.copy(), velocity.copy()
+    mask = np.ones(6, dtype=bool) if axes is None else np.asarray(axes, dtype=bool)
+    if mask.shape != (6,):
+        raise ValueError('expected six axis selections')
+    wrench = np.where(mask, wrench, 0.)
+    velocity[~mask] = 0.
     with np.errstate(over='raise', invalid='raise', divide='raise'):
         for _ in range(count):
             acceleration = np.clip((gain*wrench - damping*velocity) / mass,
@@ -105,6 +110,7 @@ def integrate(pose, velocity, wrench, mass, damping, dt, gain=1.):
                 scale = min(1., float(np.min(ACCELERATION_LIMIT[block]*h /
                                              np.maximum(np.abs(delta), 1e-15))))
                 velocity[block] += scale * delta
+            velocity[~mask] = 0.
             pose = pose @ se3_exp(velocity*h)
     if not np.isfinite(pose).all() or not np.isfinite(velocity).all():
         raise ValueError('nonfinite integration result')
@@ -123,6 +129,7 @@ class ArmAdmittance:
         self.q = self.actual_pose = self.joint_velocity = None
         self.command_pose = self.command_q = None
         self.velocity = np.zeros(6)
+        self.axes = np.ones(6, dtype=bool)
         self.mass, self.damping = validate_gains(M_DEFAULT, D_DEFAULT)
         self.target_mass, self.target_damping = self.mass.copy(), self.damping.copy()
         self.last_step = self.enabled_at = None
@@ -204,7 +211,18 @@ class ArmAdmittance:
         if not self.active:
             self.mass, self.damping = self.target_mass.copy(), self.target_damping.copy()
 
+    def select_axes(self, axes):
+        mask = np.asarray(axes)
+        if mask.shape != (6,) or mask.dtype != np.bool_:
+            raise ValueError('expected six boolean axis selections')
+        # Start from measured rest on the next explicit Enable, rather than
+        # continuing an integrated target on a newly disabled axis.
+        self.stop('axis selection changed; wait for rest, then Enable')
+        self.axes = mask.copy()
+
     def enable(self, now):
+        if not self.axes.any():
+            raise ValueError('select at least one axis before Enable')
         reason = self.readiness(now)
         if reason:
             raise ValueError(reason)
@@ -215,11 +233,6 @@ class ArmAdmittance:
         self.filtered = self.raw.copy()
         self.last_step = self.enabled_at = now
         self.state, self.error, self.initial_pending = 'Enabling', '', True
-
-    def check_tracking(self, target):
-        error = pose_error(target, self.actual_pose)
-        if np.linalg.norm(error[:3]) > POSITION_ERROR_M or np.linalg.norm(error[3:]) > ANGLE_ERROR_RAD:
-            raise ValueError('command/actual pose tracking error')
 
     def candidate(self, now):
         """Return a proposal; commit it only after final checks and publication."""
@@ -234,15 +247,14 @@ class ArmAdmittance:
             raise ValueError(f'control dt out of range: {dt:.4g}s')
         if dt < DT_MIN_SEC:
             return None
-        self.check_tracking(self.command_pose)
         blend = -math.expm1(-dt/GAIN_SMOOTHING_SEC)
         mass = (1.-blend)*self.mass + blend*self.target_mass
         damping = (1.-blend)*self.damping + blend*self.target_damping
         ramp = min(1., (now-self.enabled_at)/ENABLE_RAMP_SEC)
         gain = ramp*ramp*(3.-2.*ramp)
         pose, velocity = integrate(self.command_pose, self.velocity,
-                                   effective_wrench(self.filtered), mass, damping, dt, gain)
-        self.check_tracking(pose)
+                                   effective_wrench(self.filtered), mass, damping, dt, gain,
+                                   axes=self.axes)
         started = time.monotonic()
         result = self.solver.solve(pose, self.command_q)
         if time.monotonic()-started > IK_BUDGET_SEC:
@@ -323,7 +335,10 @@ class AdmittanceNode(Node):
         """GUI thread entry; last request wins and Disable invalidates in-flight work."""
         with self.lock:
             request = self.requests.setdefault(side, {})
-            if action in ('enable', 'disable'):
+            if action == 'axes':
+                self.generations[side] += 1
+                request['axes'] = value
+            elif action in ('enable', 'disable'):
                 self.generations[side] += 1
                 request['action'] = action
                 if action == 'disable':
@@ -343,11 +358,15 @@ class AdmittanceNode(Node):
         data = {}
         for side, arm in self.arms.items():
             data[side] = dict(state=arm.state, frame=arm.received_frame or '(no frame)',
+                              axes=tuple(bool(v) for v in arm.axes),
+                              mass=tuple(arm.mass), damping=tuple(arm.damping),
+                              target_mass=tuple(arm.target_mass), target_damping=tuple(arm.target_damping),
+                              gain_error=self.input_errors[side],
                               filtered=None if arm.filtered is None else tuple(arm.filtered),
                               effective=None if arm.filtered is None else tuple(effective_wrench(arm.filtered)),
                               velocity=tuple(arm.velocity), wrench_age=now-arm.wrench_at,
                               pose_age=now-arm.pose_at,
-                              error=arm.error or self.input_errors[side] or arm.readiness(now) or
+                              error=arm.error or arm.readiness(now) or
                               self.model_error or self.chain_error or
                               ('' if self.limiter_state == 'ARMED' else 'waiting for collision limiter ARMED'))
         with self.lock:
@@ -373,11 +392,24 @@ class AdmittanceNode(Node):
                 try:
                     arm.apply_gains(*request['gains'])
                     self.input_errors[side] = ''
+                    self.get_logger().info(
+                        f'{side}: accepted M={arm.target_mass.tolist()}, '
+                        f'D={arm.target_damping.tolist()}')
                 except (ValueError, TypeError) as exc:
                     self.input_errors[side] = str(exc)
+                    self.get_logger().warning(f'{side}: M/D rejected: {exc}')
             action = request.get('action')
             if action == 'disable' or request.get('reset'):
                 arm.stop()
+            if 'axes' in request:
+                try:
+                    arm.select_axes(request['axes'])
+                    selected = ' '.join(a for a, use in zip(AXES, arm.axes) if use) or '(none)'
+                    self.get_logger().info(f'{side}: selected flange axes: {selected}; arm Disabled')
+                except ValueError as exc:
+                    arm.stop(str(exc), fault=True)
+                # A simultaneous Enable must not bypass the selection stop.
+                action = None
             blocked = self.model_error or self.chain_error or (
                 '' if self.limiter_state == 'ARMED' else f'collision limiter: {self.limiter_state or "waiting"}')
             try:
@@ -422,46 +454,67 @@ class AdmittanceWindow:
         self.root.title('Dual CRX — flange admittance')
         self.closing = False
         self.fields, self.labels, self.buttons = {}, {}, {}
+        self.axis_variables, self.axis_buttons = {}, {}
+        self.gain_input_errors = {side: '' for side in SIDES}
         ttk.Label(self.root, text='Stop other arm command scripts. K = 0. Disable holds the last accepted target.').grid(
             row=0, column=0, columnspan=2, padx=12, pady=8)
         for col, side in enumerate(SIDES):
             panel = ttk.LabelFrame(self.root, text=side.upper(), padding=10)
             panel.grid(row=1, column=col, sticky='nsew', padx=8, pady=8)
-            labels = {key: tk.StringVar() for key in ('state', 'frame', 'age', 'error', 'values')}
+            labels = {key: tk.StringVar() for key in
+                      ('state', 'frame', 'age', 'error', 'values', 'gains', 'gain_error')}
             self.labels[side] = labels
-            ttk.Label(panel, textvariable=labels['state']).grid(row=0, column=0, columnspan=3)
+            ttk.Label(panel, textvariable=labels['state']).grid(row=0, column=0, columnspan=4)
             enable = ttk.Button(panel, text='Enable', command=lambda s=side: node.request(s, 'enable'))
             enable.grid(row=1, column=0)
             disable = ttk.Button(panel, text='Disable', command=lambda s=side: node.request(s, 'disable'))
             disable.grid(row=1, column=1)
             self.buttons[side] = (enable, disable)
-            for index, title in enumerate(('Axis', 'M', 'D')):
+            for index, title in enumerate(('Flange axis', 'Enable axis', 'M', 'D')):
                 ttk.Label(panel, text=title).grid(row=2, column=index)
             mass, damping = [], []
-            for row, axis in enumerate(('x', 'y', 'z', 'rx', 'ry', 'rz'), start=3):
+            self.axis_variables[side], self.axis_buttons[side] = [], []
+            for row, axis in enumerate(AXES, start=3):
                 ttk.Label(panel, text=axis).grid(row=row, column=0)
-                for column, defaults, output in [(1, M_DEFAULT, mass), (2, D_DEFAULT, damping)]:
+                selected = tk.BooleanVar(value=True)
+                self.axis_variables[side].append(selected)
+                checkbox = ttk.Checkbutton(panel, variable=selected,
+                                           command=lambda s=side: self.select_axes(s))
+                checkbox.grid(row=row, column=1)
+                self.axis_buttons[side].append(checkbox)
+                for column, defaults, output in [(2, M_DEFAULT, mass), (3, D_DEFAULT, damping)]:
                     variable = tk.StringVar(value=f'{defaults[row-3]:g}')
                     ttk.Entry(panel, textvariable=variable, width=12).grid(row=row, column=column)
                     output.append(variable)
             self.fields[side] = (mass, damping)
             ttk.Button(panel, text='Apply M / D', command=lambda s=side: self.apply(s)).grid(
-                row=9, column=0, columnspan=3, pady=8)
-            for row, key in enumerate(('frame', 'age', 'values', 'error'), start=10):
-                ttk.Label(panel, textvariable=labels[key], justify='left', wraplength=460).grid(
-                    row=row, column=0, columnspan=3, sticky='w', pady=4)
+                row=9, column=0, columnspan=4, pady=8)
+            ttk.Label(panel, justify='left', text=(
+                'Edit, then click Apply M / D for this arm.\n'
+                'x/y/z: M [kg], D [N s/m]; rx/ry/rz: M [kg m²], D [Nm s/rad].\n'
+                'M/D must stay positive. Checkboxes select local flange axes.\n'
+                'Changing axes disables this arm; wait for rest, then Enable.')).grid(
+                    row=10, column=0, columnspan=4, sticky='w', pady=4)
+            for row, key in enumerate(('gains', 'gain_error', 'frame', 'age', 'values', 'error'), start=11):
+                ttk.Label(panel, textvariable=labels[key], justify='left', wraplength=520).grid(
+                    row=row, column=0, columnspan=4, sticky='w', pady=4)
         self.root.protocol('WM_DELETE_WINDOW', self.close)
         self.refresh()
+
+    def select_axes(self, side):
+        self.node.request(side, 'axes', [v.get() for v in self.axis_variables[side]])
 
     def apply(self, side):
         try:
             values = [[float(v.get()) for v in group] for group in self.fields[side]]
             validate_gains(*values)
+            self.gain_input_errors[side] = ''
             self.node.request(side, 'gains', values)
         except ValueError as exc:
-            # Send validation errors through the ROS-side snapshot so refresh preserves them.
-            self.node.request(side, 'gains', ([math.nan]*6, [math.nan]*6))
-            self.labels[side]['error'].set(str(exc))
+            # Keep the exact error visible independently of arm readiness/faults.
+            # Reject the edit without sending a dummy NaN request to the controller.
+            self.gain_input_errors[side] = f'M/D rejected: {exc}'
+            self.labels[side]['gain_error'].set(self.gain_input_errors[side])
 
     def refresh(self):
         if self.closing:
@@ -476,7 +529,15 @@ class AdmittanceWindow:
                 labels['age'].set(f'Wrench age: {data["wrench_age"]:.3f}s | Pose age: {data["pose_age"]:.3f}s')
                 def row(values):
                     return 'waiting' if values is None else ' '.join(f'{v: .3f}' for v in values)
-                labels['values'].set('Axes: x y z rx ry rz\n'
+                self.labels[side]['gains'].set(
+                    f'Accepted M: {row(data["target_mass"])}\n'
+                    f'Accepted D: {row(data["target_damping"])}\n'
+                    f'In use M:   {row(data["mass"])}\n'
+                    f'In use D:   {row(data["damping"])}')
+                labels['gain_error'].set(self.gain_input_errors[side] or data['gain_error'])
+                selected = ' '.join(a for a, use in zip(AXES, data['axes']) if use) or '(none)'
+                labels['values'].set(f'Selected flange axes: {selected}\n'
+                                     'Axes: x y z rx ry rz\n'
                                      f'Filtered [N, Nm]: {row(data["filtered"])}\n'
                                      f'Effective [N, Nm]: {row(data["effective"])}\n'
                                      f'Velocity [m/s, rad/s]: {row(data["velocity"])}')
@@ -491,6 +552,9 @@ class AdmittanceWindow:
         for pair in self.buttons.values():
             for button in pair:
                 button.state(['disabled'])
+        for checkboxes in self.axis_buttons.values():
+            for checkbox in checkboxes:
+                checkbox.state(['disabled'])
         self.root.title('Dual CRX — shutting down')
 
 

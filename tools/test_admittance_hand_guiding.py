@@ -93,7 +93,59 @@ def test_body_translation_uses_initial_rotation():
     np.testing.assert_allclose(moved[:3, 3], [0, .01, 0], atol=1e-15)
 
 
-@pytest.mark.parametrize('axis,input_value,steady', [(0, 10., .085), (3, .2, .425)])
+@pytest.mark.parametrize('axis', range(6))
+def test_single_axis_ignores_other_forces_and_residual_velocity(axis):
+    initial = np.eye(4)
+    initial[:3, :3] = Rotation.from_euler('xyz', [30, 40, 50], degrees=True).as_matrix()
+    initial[:3, 3] = [.3, -.4, .2]
+    mask = np.zeros(6, dtype=bool)
+    mask[axis] = True
+    pose, velocity = initial.copy(), np.full(6, .03)
+    force = np.array([3., 6., 9., .3, .6, .9])
+    for _ in range(100):
+        pose, velocity = ad.integrate(pose, velocity, force, ad.M_DEFAULT, ad.D_DEFAULT,
+                                     .01, axes=mask)
+        np.testing.assert_array_equal(velocity[~mask], np.zeros(5))
+    relative = np.linalg.inv(initial) @ pose
+    motion = np.r_[relative[:3, 3], Rotation.from_matrix(relative[:3, :3]).as_rotvec()]
+    assert abs(motion[axis]) > 1e-4
+    np.testing.assert_allclose(motion[~mask], np.zeros(5), atol=1e-12)
+
+
+def test_x_only_generates_no_y_z_or_rotation_targets():
+    a = arm()
+    a.select_axes([True, False, False, False, False, False])
+    a.enable(0.)
+    a.commit(a.candidate(0.))
+    for step in range(1, 201):
+        now = step * .01
+        a.feedback(joints(q=a.command_q), now)
+        a.wrench(wrench(values=[3., 6., 9., .3, .6, .9]), now)
+        a.commit(a.candidate(now))
+        np.testing.assert_array_equal(a.velocity[1:], np.zeros(5))
+        np.testing.assert_allclose(a.command_pose[:3, :3], np.eye(3), atol=1e-12)
+        np.testing.assert_allclose(a.command_pose[1:3, 3], np.zeros(2), atol=1e-12)
+    assert a.command_pose[0, 3] > .001
+
+
+def test_axis_change_clears_motion_and_requires_reenable():
+    a = arm()
+    a.enable(0.)
+    a.commit(a.candidate(0.))
+    a.velocity[:] = .1
+    a.select_axes([True, False, False, False, False, False])
+    assert not a.active and a.state == 'Disabled'
+    assert not a.velocity.any() and a.command_pose is None and a.command_q is None
+    a.enable(.01)
+    np.testing.assert_allclose(a.command_pose, a.actual_pose)
+    a.select_axes([False] * 6)
+    with pytest.raises(ValueError, match='at least one axis'):
+        a.enable(.02)
+    with pytest.raises(ValueError, match='positive'):
+        a.apply_gains(ad.M_DEFAULT, np.zeros(6))
+
+
+@pytest.mark.parametrize('axis,input_value,steady', [(0, 10., .085), (3, .2, .014)])
 def test_nominal_response_and_release_stays_at_last_position(axis, input_value, steady):
     pose, velocity, raw = np.eye(4), np.zeros(6), np.zeros(6)
     raw[axis] = input_value
@@ -129,6 +181,24 @@ def test_invalid_or_unstable_gains_rejected(value):
     mass[0] = value
     with pytest.raises(ValueError):
         ad.validate_gains(mass, ad.D_DEFAULT)
+
+
+def test_mass_changes_transient_and_damping_changes_steady_speed():
+    force = ad.effective_wrench(np.array([5., 0., 0., 0., 0., 0.]))
+    initial_speeds = []
+    for mass_x in (20., 40.):
+        mass = ad.M_DEFAULT.copy()
+        mass[0] = mass_x
+        _, velocity = ad.integrate(np.eye(4), np.zeros(6), force, mass, ad.D_DEFAULT, .01)
+        initial_speeds.append(velocity[0])
+    assert initial_speeds[0] == pytest.approx(2 * initial_speeds[1])
+    for damping_x in (100., 200.):
+        damping = ad.D_DEFAULT.copy()
+        damping[0] = damping_x
+        pose, velocity = np.eye(4), np.zeros(6)
+        for _ in range(500):
+            pose, velocity = ad.integrate(pose, velocity, force, ad.M_DEFAULT, damping, .01)
+        assert velocity[0] == pytest.approx(3.5 / damping_x)
 
 
 def test_filter_uses_sample_interval_and_enable_resets_it():
@@ -190,8 +260,9 @@ def test_timeout_tracking_dt_and_bad_feedback():
     with pytest.raises(ValueError, match='timeout'):
         a.candidate(.2)
     a.actual_pose[0, 3] = .03
-    with pytest.raises(ValueError, match='tracking'):
-        a.candidate(.01)
+    assert a.candidate(.01) is not None
+    a.actual_pose[:3, :3] = Rotation.from_euler('z', 6, degrees=True).as_matrix()
+    assert a.candidate(.01) is not None
     a.feedback(joints(q=[math.nan]*6), .01)
     assert a.state == 'Fault'
 
@@ -242,6 +313,27 @@ def test_node_merges_arms_and_isolates_bad_ik(ros_node):
     assert node.arms['right'].active and set(sent[-1]) == {'right'}
 
 
+def test_applied_gains_visible_and_errors_not_hidden_by_arm_fault(ros_node):
+    node, sent = ros_node
+    mass, damping = ad.M_DEFAULT.copy(), ad.D_DEFAULT.copy()
+    mass[0], damping[0] = 40., 200.
+    node.request('left', 'gains', (mass, damping))
+    node.cycle()
+    snapshot = node.read_snapshot()
+    assert snapshot['left']['mass'][0] == snapshot['left']['target_mass'][0] == 40.
+    assert snapshot['left']['damping'][0] == snapshot['left']['target_damping'][0] == 200.
+    assert snapshot['right']['mass'][0] == ad.M_DEFAULT[0]
+    assert not sent  # Applying gains while disabled never sends motion targets.
+    node.arms['left'].stop('existing arm fault', fault=True)
+    mass[0] = 1.  # D/M = 200 exceeds the integration budget.
+    node.request('left', 'gains', (mass, damping))
+    node.cycle()
+    snapshot = node.read_snapshot()['left']
+    assert snapshot['error'] == 'existing arm fault'
+    assert 'D/M too large' in snapshot['gain_error']
+    assert snapshot['target_mass'][0] == 40.
+
+
 def test_disable_during_ik_cannot_publish_candidate(ros_node):
     node, sent = ros_node
     node.request('left', 'enable')
@@ -256,6 +348,42 @@ def test_disable_during_ik_cannot_publish_candidate(ros_node):
     a.last_step -= .01
     node.cycle()
     assert len(sent) == count and not a.active
+
+
+def test_axis_selection_stops_only_selected_arm(ros_node):
+    node, sent = ros_node
+    for side in ad.SIDES:
+        node.request(side, 'enable')
+    node.cycle()
+    node.request('left', 'axes', [True, False, False, False, False, False])
+    node.request('left', 'enable')  # Same-cycle Enable cannot bypass stopping.
+    node.arms['right'].last_step -= .01
+    node.cycle()
+    assert node.arms['left'].state == 'Disabled'
+    assert node.arms['right'].active and set(sent[-1]) == {'right'}
+    assert node.read_snapshot()['left']['axes'] == (True, False, False, False, False, False)
+    assert node.read_snapshot()['right']['axes'] == (True,) * 6
+    node.request('left', 'enable')
+    node.cycle()
+    assert node.arms['left'].active
+
+
+def test_axis_selection_during_ik_discards_old_target(ros_node):
+    node, sent = ros_node
+    node.request('left', 'enable')
+    node.cycle()
+    a = node.arms['left']
+    solve = a.solver.solve
+    def change_axes(pose, seed):
+        node.request('left', 'axes', [True, False, False, False, False, False])
+        return solve(pose, seed)
+    a.solver.solve = change_axes
+    a.last_step -= .01
+    node.cycle()
+    assert len(sent) == 1 and not a.active
+    node.cycle()
+    assert node.read_snapshot()['left']['axes'] == (True, False, False, False, False, False)
+    assert len(sent) == 1
 
 
 def test_close_during_ik_discards_both_candidates(ros_node):
@@ -404,14 +532,36 @@ def test_gui_buttons_gains_and_shutdown():
         wait(lambda: node.read_snapshot()['left']['state'] in ('Enabling', 'Enabled'))
         assert node.read_snapshot()['right']['state'] == 'Disabled'
         window.fields['left'][0][0].set('25')
+        window.fields['left'][1][0].set('200')
+        window.root.update()
+        assert node.read_snapshot()['left']['target_mass'][0] == 20.
+        assert node.read_snapshot()['left']['target_damping'][0] == 100.
         window.apply('left')
-        wait(lambda: node.arms['left'].target_mass[0] == 25.)
+        wait(lambda: node.read_snapshot()['left']['target_mass'][0] == 25.
+             and node.read_snapshot()['left']['target_damping'][0] == 200.)
+        wait(lambda: abs(node.read_snapshot()['left']['mass'][0] - 25.) < .1
+             and abs(node.read_snapshot()['left']['damping'][0] - 200.) < .5)
+        wait(lambda: 'Accepted M:  25.000' in window.labels['left']['gains'].get())
+        assert node.read_snapshot()['right']['target_damping'][0] == 100.
+        for checkbox in window.axis_buttons['left'][1:]:
+            checkbox.invoke()
+        wait(lambda: node.read_snapshot()['left']['axes'] == (True, False, False, False, False, False)
+             and node.read_snapshot()['left']['state'] == 'Disabled')
+        wait(lambda: 'Selected flange axes: x\n' in window.labels['left']['values'].get())
+        assert node.read_snapshot()['right']['axes'] == (True,) * 6
+        window.buttons['left'][0].invoke()
+        wait(lambda: node.read_snapshot()['left']['state'] in ('Enabling', 'Enabled'))
         window.buttons['left'][1].invoke()
         wait(lambda: node.read_snapshot()['left']['state'] == 'Disabled')
         window.fields['left'][0][0].set('-1')
         window.apply('left')
-        wait(lambda: 'positive' in node.read_snapshot()['left']['error'])
+        wait(lambda: 'positive' in window.labels['left']['gain_error'].get())
         assert node.arms['left'].target_mass[0] == 25.
+        window.fields['left'][0][0].set('1')
+        window.apply('left')
+        window.refresh()
+        assert 'D/M too large' in window.labels['left']['gain_error'].get()
+        assert node.read_snapshot()['left']['target_mass'][0] == 25.
         window.close()
         deadline = time.monotonic()+3.
         while not node.done.is_set() and time.monotonic() < deadline:

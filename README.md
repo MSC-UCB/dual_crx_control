@@ -147,6 +147,32 @@ the underlying interpolator may finish its last accepted segment before holding.
 Re-enable initializes from the current measured pose. Closing the window disables
 both arms and shuts down only this GUI node, leaving the control launch running.
 
+输入框中的修改只有点击对应侧的 **Apply M / D** 后才提交。界面中的
+**Accepted M/D** 显示控制器已接受的目标参数，**In use M/D** 显示当前计算使用的参数；
+启用时以 0.3 秒时间常数平滑更新，约 0.9 秒完成 95% 的变化，停用时应用参数立即生效。
+输入错误单独显示，应用成功时终端也会打印该侧接受的 M、D。参数仅保留在本次 GUI 进程中。
+
+导纳模型为 `M * dv/dt + D * v = F_effective`（K=0）。M 主要影响加减速过程；
+D 主要影响恒定外力下的稳态速度，未饱和时 `v = F_effective / D`。
+默认平移死区为 1.5 N、速度上限为 0.10 m/s、加速度上限为 0.25 m/s²；
+进入这些限制后，继续减小 M 或 D 可能不会明显改变响应。
+M、D 均须为正数，各轴 D/M 不得超过 100 s⁻¹；改变参数不会自动清除 Fault 或启用机械臂。
+
+**单轴选择：** 使用各轴的 **Enable axis** 复选框，不能通过把 M 或 D 设为 0 来禁用轴。
+只沿 x 拖动时，仅勾选 x，取消 y、z、rx、ry、rz；所有输入框仍须保留有效的正数 M、D。
+轴选择立即提交并停用该臂、清除虚拟速度，待机器人静止后再点击整臂 Enable；
+下游插值器仍可能完成已接受的目标。另一侧的选择和状态不受影响。
+界面显示控制器实际接受的 `Selected flange axes`。所有轴取消时不能 Enable。
+
+这里选择的是法兰局部笛卡尔轴，不是世界坐标轴，也不是 J1–J6 关节。
+仅选 x 且关闭三个旋转轴时，目标姿态固定，末端沿启用时的法兰 x 方向移动；
+这个方向可能同时包含世界坐标的 x/y/z 分量，也通常需要多个机器人关节协同运动。
+若同时启用旋转轴，平移方向会随法兰目标姿态转动。轴选择约束导纳生成的末端目标，
+实际运动仍受 IK、插值与机器人跟踪误差影响。选择仅保留在本次 GUI 进程中。
+
+已取消目标与实际位置相差超过 2 cm、姿态相差超过 5° 时的 Fault 判断，
+平移和旋转跟踪误差均不再触发停用。三个旋转轴的力矩死区均为 0.06 N·m。
+
 The operation point is **`left_fanuc_flange` / `right_fanuc_flange`**, matching the
 current wrench labels. FK and IK use that same link; no wrench transform or tare
 is applied. Verify the actual force axes and torque origin match these labels
@@ -162,14 +188,16 @@ interpolator. No Cartesian pose topics or new controller are required.
 All starting values are at the top of
 [admittance_hand_guiding.py](scripts/admittance_hand_guiding.py):
 
-- M = `[20,20,20,0.08,0.08,0.08]`, D = `[100,100,100,0.4,0.4,0.4]`, K = 0.
+- M = `[20,20,20,1,1,1]`, D = `[100,100,100,10,10,10]`, K = 0.
   Axis order is x/y/z/rx/ry/rz; M uses kg and kg·m², D uses N·s/m and Nm·s/rad.
-- Per-axis 8 Hz low-pass and continuous deadband of 1.5 N / 0.03 Nm.
+- Per-axis 8 Hz low-pass and continuous deadband of 1.5 N / 0.06 Nm.
 - Per-axis velocity limits 0.10 m/s / 0.5 rad/s, also capped by linear/angular
   norms; acceleration limits 0.25 m/s² / 1.0 rad/s² per axis.
+- Joint-target limits: 0.06 rad per update and 1.0 rad/s per joint,
+  with the velocity capped further by each joint's URDF limit.
 - 100 Hz control with measured dt and SE(3) integration; 20 Hz GUI; 0.5 s enable
   ramp. Keep launch `input_rate_hz:=100.0` in sync if changing the script rate.
-- 0.10 s feedback timeouts; 2 cm / 5° command tracking guards; joint limits,
+- 0.10 s feedback timeouts; joint limits,
   bounded IK, and dt guards. A local fault stops that arm's targets. The existing
   20 N collision limiter can still stop **both** arms.
 

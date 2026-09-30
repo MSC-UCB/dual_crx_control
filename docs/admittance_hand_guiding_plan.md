@@ -75,13 +75,15 @@ GUI main thread + 一個 ROS executor background thread。GUI 只透過 queue／
 
 ## 設定區與控制計算
 
-所有初始值放在 script 頂端。GUI 只讓左右手各自調整六軸 M／D；K 固定為零。
+所有初始值放在 script 頂端。GUI 讓左右手各自調整六軸 M／D 與 Enable axis；K 固定為零。
+各軸 M／D 仍須為正數；取消勾選才會禁用該法蘭局部軸。
+更改軸選擇會停用該臂並清除虛擬速度，等機器人靜止後須重新 Enable。
 
 | 設定 | 初值 |
 | --- | --- |
-| M，順序 `[x,y,z,rx,ry,rz]` | `[20,20,20,0.08,0.08,0.08]` |
-| D，同上 | `[100,100,100,0.4,0.4,0.4]` |
-| 分軸 deadband | `[1.5,1.5,1.5,0.03,0.03,0.03]` N／Nm |
+| M，順序 `[x,y,z,rx,ry,rz]` | `[20,20,20,1,1,1]` |
+| D，同上 | `[100,100,100,10,10,10]` |
+| 分軸 deadband | `[1.5,1.5,1.5,0.06,0.06,0.06]` N／Nm |
 | 一階 low-pass | 六軸各自 8 Hz |
 | 分軸速度上限 | `[0.10,0.10,0.10,0.5,0.5,0.5]` m/s／rad/s |
 | 合速度上限 | 平移 norm 0.10 m/s、旋轉 norm 0.5 rad/s，避免斜向速度增至 √3 倍 |
@@ -90,7 +92,7 @@ GUI main thread + 一個 ROS executor background thread。GUI 只透過 queue／
 | Enable force gain ramp | 0.5 秒 |
 | M／D 平滑更新 | 0.3 秒 |
 | Wrench／joint feedback timeout | 各 0.10 秒；實際 pose 年齡沿用其 joint feedback 年齡 |
-| Command–actual 誤差上限 | 平移 0.02 m、最短旋轉角約 5° |
+| Command–actual 誤差上限 | 已取消平移與旋轉追蹤誤差上限 |
 | 合法控制 dt | 0.002–0.05 秒 |
 
 M 平移單位 kg、旋轉 kg·m²；D 平移 N·s/m、旋轉 Nm·s/rad。
@@ -106,11 +108,12 @@ M 平移單位 kg、旋轉 kg·m²；D 平移 N·s/m、旋轉 Nm·s/rad。
 4. `T_candidate=T_cmd*Exp_SE3(v*dt)`，v 與 wrench 都使用當前選定的 flange/body 分量。
    以真正 SE(3) exponential 包含旋轉／平移耦合，使用 SciPy Rotation 與小型 left-Jacobian，
    不累加 Euler angles。FK／目標 pose 的 matrix 都表達在 world。
-5. 檢查 candidate 與實際 pose 的誤差、IK 解與 joint limits，通過後才提交 T_cmd／joint target。
+5. 檢查 candidate 的 IK 解與 joint limits，通過後才提交 T_cmd／joint target。
    拒絕時 fault 該手，不累積未被接受的 pose 位移。
 
-wrench 跟隨實際 flange，右乘增量對應 command flange；第一版以小追蹤誤差近似兩者一致，
-由誤差 watchdog 限制偏離，不處理大落差的 moving-frame 補償。
+wrench 跟隨實際 flange，右乘增量對應 command flange；仍近似兩者方向一致，
+不處理大落差的 moving-frame 補償。平移與旋轉追蹤誤差均不再觸發 Fault，
+目標與實際位置、姿態可能累積較大差距。
 K=0；放手後 v 由 D 衰減至零並保持最後位置，不回啟用點。
 
 用 monotonic 實測 dt。太小就略過並累積時間；非正、非有限或太大就 fault。
@@ -118,8 +121,8 @@ K=0；放手後 v 由 D 衰減至零並保持最後位置，不回啟用點。
 不能滿足就拒絕 gain 更新／fault，不能靠 M／D 為正便假定穩定。
 GUI Apply 原子提交一整組有效 M／D，平滑趨近新值，錯誤輸入保留原參數。
 
-加入 deadband 後，原始單軸 10 N 對應約 0.085 m/s，0.2 Nm 對應約 0.425 rad/s。
-0.2 秒是未飽和模型的 M／D 時間常數；filter、ramp、加速度限制與底層延遲會改變實際反應。
+加入 deadband 後，原始單軸 10 N 對應約 0.085 m/s，0.2 Nm 對應約 0.014 rad/s。
+未飽和模型的 M／D 時間常數為平移 0.2 秒、旋轉 0.1 秒；filter、ramp、加速度限制與底層延遲會改變實際反應。
 
 ## 保留的基本行為與保護
 
@@ -129,7 +132,7 @@ GUI Apply 原子提交一整組有效 M／D，平滑趨近新值，錯誤輸入�
   初始化成功前不發布命令；GUI 顯示 Disabled／Enabling／Enabled／Fault。
 - Disable 優先在下一個控制 callback 封鎖該手發布、v 清零並清掉 pending target。
   再次 Enable 必須重新讀實際 pose，不能復用舊 command。
-- 資料逾時、NaN／Inf、frame 改變、pose 追蹤誤差、IK／joint limits 或 dt 異常，都讓該手 Fault。
+- 資料逾時、NaN／Inf、frame 改變、IK／joint limits 或 dt 異常，都讓該手 Fault。
   另一手正常時仍可送出自己的 target。
 - 既有 interpolator 可能完成最後接受的 segment 才保持位置，因此 Disable 不是急停。
   使用者先停止其他 motion scripts、確認沒有尚未完成的運動，再 Enable GUI。
