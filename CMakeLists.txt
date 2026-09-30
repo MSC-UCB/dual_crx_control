@@ -19,6 +19,7 @@ target_link_libraries(_ruckig PRIVATE ruckig::ruckig)
 install(TARGETS _ruckig LIBRARY DESTINATION "${PYTHON_INSTALL_DIR}/${PROJECT_NAME}")
 
 install(PROGRAMS
+  scripts/admittance_hand_guiding.py
   scripts/collision_force_limiter.py
   scripts/move_to_default_pose.py
   scripts/keyboard_control.py
@@ -66,6 +67,8 @@ endif()
 
 if(BUILD_TESTING)
   find_package(ament_cmake_pytest REQUIRED)
+  ament_add_pytest_test(admittance tools/test_admittance_hand_guiding.py TIMEOUT 180
+    ENV ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST OPENBLAS_NUM_THREADS=1)
   ament_add_pytest_test(collision_force_limiter tools/test_collision_force_limiter.py TIMEOUT 90
     ENV ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST ROS_DOMAIN_ID=183)
   ament_add_pytest_test(collision_force_launch tools/test_collision_force_launch.py TIMEOUT 180

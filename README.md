@@ -128,6 +128,70 @@ the FANUC force sensor/protocol and payload configuration. This software stop is
 not a hardware emergency stop, and real stopping latency has not been measured.
 See [design and validation](docs/collision_force_limiter.md).
 
+## Admittance hand guiding GUI
+
+Start your existing `dual_arm.launch.py` or `bimanual_system.launch.py` with motion
+control enabled (`read_only:=false`) and the collision limiter enabled. Then,
+after sourcing ROS and this workspace in another terminal:
+
+```bash
+ros2 run dual_crx_control admittance_hand_guiding.py
+```
+
+The single script opens independent left/right panels. Both start **Disabled**.
+Stop other arm command scripts, wait for fresh feedback and collision limiter
+`ARMED`, then Enable either arm. Use **Apply M / D** to update that arm's six gains;
+values must be finite and positive and pass the integration stability check.
+Gain changes are smoothed. Disable clears virtual velocity and stops new targets;
+the underlying interpolator may finish its last accepted segment before holding.
+Re-enable initializes from the current measured pose. Closing the window disables
+both arms and shuts down only this GUI node, leaving the control launch running.
+
+The operation point is **`left_fanuc_flange` / `right_fanuc_flange`**, matching the
+current wrench labels. FK and IK use that same link; no wrench transform or tare
+is applied. Verify the actual force axes and torque origin match these labels
+before hardware use. Rotation is about the flange origin, so an offset TCP moves
+with it. This controls CRX arms only, not Sharpa fingers.
+
+The existing inputs are each arm's `force_torque_sensor_broadcaster/wrench`
+(`WrenchStamped`), `joint_states` (`JointState`), and the shared
+`/crx5ia/robot_description` (`String`). Cartesian poses stay inside the script;
+validated IK targets go to **`/crx5ia/joint_targets` (`JointState`)** and the existing
+interpolator. No Cartesian pose topics or new controller are required.
+
+All starting values are at the top of
+[admittance_hand_guiding.py](scripts/admittance_hand_guiding.py):
+
+- M = `[20,20,20,0.08,0.08,0.08]`, D = `[100,100,100,0.4,0.4,0.4]`, K = 0.
+  Axis order is x/y/z/rx/ry/rz; M uses kg and kg·m², D uses N·s/m and Nm·s/rad.
+- Per-axis 8 Hz low-pass and continuous deadband of 1.5 N / 0.03 Nm.
+- Per-axis velocity limits 0.10 m/s / 0.5 rad/s, also capped by linear/angular
+  norms; acceleration limits 0.25 m/s² / 1.0 rad/s² per axis.
+- 100 Hz control with measured dt and SE(3) integration; 20 Hz GUI; 0.5 s enable
+  ramp. Keep launch `input_rate_hz:=100.0` in sync if changing the script rate.
+- 0.10 s feedback timeouts; 2 cm / 5° command tracking guards; joint limits,
+  bounded IK, and dt guards. A local fault stops that arm's targets. The existing
+  20 N collision limiter can still stop **both** arms.
+
+The deadband makes a raw 10 N input correspond to about 0.085 m/s in the ideal
+unsaturated model. Tune limits, gains, frame names and timing in the settings
+section; no additional launch options are needed. Tkinter requires `python3-tk`
+and a working graphical display. Mock wrench may be NaN, so plain mock bringup
+cannot Enable hand guiding without a synthetic force source. The isolated mock
+test supplies one; do not publish synthetic wrench into a physical robot domain.
+
+Mock/GUI tests (no physical driver; run from this package directory):
+
+```bash
+ADMITTANCE_ROS_MOCK=1 ADMITTANCE_GUI_TEST=1 \
+  ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST OPENBLAS_NUM_THREADS=1 \
+  python3 -m pytest -q tools/test_admittance_hand_guiding.py
+```
+
+Omit `ADMITTANCE_GUI_TEST=1` when no display is available. See
+[implementation notes](docs/admittance_hand_guiding_plan.md) for the remaining
+physical validation limits. The GUI has not been tested with enabled hardware.
+
 ## Read force/torque (wrench)
 
 With `dual_arm.launch.py mock:=false` running, source ROS and the workspace in
