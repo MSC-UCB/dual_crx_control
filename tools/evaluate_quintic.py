@@ -147,9 +147,10 @@ def main():
                          'Sine RMSE uses the clean continuous sine; other RMSE uses latest received target.')
     (args.output_dir/'metrics.json').write_text(json.dumps(dict(metadata=metadata, results=results), indent=2)+'\n')
     lines = [
-        '# 第三版 quintic 离线评估', '',
-        '比较当前 waypoint、stream 和新增的 quintic。未连接机器人；两臂均参与规划，指标和图显示左臂 J1。', '',
-        '| 场景 | 模式 | 位置 RMSE (rad) | 加速度 RMS (rad/s²) | jerk RMS (rad/s³) | 静止采样占比 | quintic 中位规划时长 (s) |',
+        '# Quintic offline evaluation, version 3', '',
+        'Comparison of the existing waypoint and stream modes with the new quintic mode. '
+        'No robot is connected; both arms are included in planning, while metrics and plots show left J1.', '',
+        '| Scenario | Mode | Position RMSE (rad) | Acceleration RMS (rad/s²) | Jerk RMS (rad/s³) | Rest sample fraction | Quintic median planning horizon (s) |',
         '|---|---|---:|---:|---:|---:|---:|',
     ]
     for result in results:
@@ -158,14 +159,25 @@ def main():
                      f"{result['acceleration_rms']:.4g} | {result['jerk_rms']:.4g} | "
                      f"{result['rest_fraction']:.1%} | {horizon if horizon is not None else '—'} |")
     lines += [
-        '', '小步进场景：每步 0.0001 rad。正弦场景：幅度 0.1 rad、频率 0.5 Hz、输入 50 Hz。',
-        '带噪声场景加入标准差 0.0005 rad 的位置噪声和 0–8 ms 到达延迟；所有模式使用同一输入。',
-        '正弦误差相对于干净连续正弦；其余场景相对于最新收到的目标，包含正常插值过程的偏差。',
-        'jerk 由相邻规划加速度差分估计。静止采样包括段末恰好停稳的单个采样点，不等同于额外停顿时间。', '',
-        '**结论：** 小而可行的低频步进能够铺满周期，明显降低 jerk；高频、大幅连续目标会使时长延长，增加跟踪滞后。',
-        '因此它适合优先追求柔和、段末停稳的运动，不能替代低延迟连续跟踪。',
-        '15 组场景均通过有限值、速度/加速度/离散 jerk 限幅和最终停稳断言；整条 quintic 曲线另有保守解析限幅检查。',
-        '本机运行耗时记录于 metrics.json，不能视为实时调度保证。', '',
+        '', 'Small-step scenarios: 0.0001 rad per step. Sine scenarios: amplitude 0.1 rad, '
+        'frequency 0.5 Hz, and input rate 50 Hz.',
+        'The noisy scenario adds position noise with a standard deviation of 0.0005 rad '
+        'and arrival delays of 0–8 ms; all modes use the same input.',
+        'Sine error is measured against the clean continuous sine; other scenarios use the '
+        'latest received target, including deviations during normal interpolation.',
+        'Jerk is estimated from differences between consecutive planned accelerations. '
+        'Rest samples include individual samples that come to rest exactly at segment ends '
+        'and do not imply additional pause time.', '',
+        '**Conclusion:** Small, feasible steps at low input rates can span the full input period, '
+        'substantially reducing jerk; large, continuous targets at high input rates extend '
+        'the planning horizon and increase tracking lag.',
+        'This makes quintic suitable for motion that prioritizes smoothness and coming to rest '
+        'at segment ends; it cannot replace low-latency continuous tracking.',
+        'All 15 scenario/mode combinations pass assertions for finite values, velocity, '
+        'acceleration, discrete jerk limits, and final rest. The entire quintic curve also '
+        'undergoes conservative analytical limit checks.',
+        'Local execution timings are recorded in metrics.json and do not constitute '
+        'a guarantee of real-time scheduling.', '',
     ]
     for case in ('small_ramp', 'fast_ramp', 'sine_clean', 'sine_noisy', 'reversal_dropout'):
         lines += [f'## {case}', '', f'![{case}]({case}.png)', '']
