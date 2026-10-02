@@ -95,19 +95,20 @@ thread join、網路接收及 RMI 呼叫；這不是整個停止程序的一秒�
 
 ## 初始化忽略與觸發後恢復
 
-建議使用 `WAITING → WARMUP → ARMED → TRIPPED` 的單向狀態流程。
+目前使用 `WAITING → WARMUP → ARMED ↔ DEGRADED`；有效力值超標進入鎖定的 `TRIPPED`。
 
 - `WAITING`：等待兩側 controller／hardware 準備好、停止服務可用，且雙側收到有限數值的
-  新 wrench。超時就報錯並結束 bringup，不永久留在「初始化忽略」。
+  新 wrench。資料缺失只警告並持續等待，不因啟動等待時間而停機。
 - `WARMUP`：從上述條件首次滿足起計時，例如 3 秒，暫不因超過 20 N 而觸發。
-  持續檢查兩側資料是否新鮮；資料中斷時取消這次暖機，回到等待，但不延長總啟動 deadline。
+  持續檢查兩側資料是否新鮮；資料中斷時取消這次暖機，回到等待；沒有總啟動 deadline。
 - `ARMED`：暖機完成就檢查當下的新資料；若力一直高於門檻，立即觸發。
   不要求「力先降到 20 N 以下才啟用」，避免一直超標就一直忽略。
 - `TRIPPED`：只進入一次停止流程。力降低、收到新 target 或重新連線都不自動恢復。
   第一版不提供 reset／自動 re-activate；確認接觸已解除、停止外部命令來源後，重新 launch。
 
-一旦進入 `ARMED`，雙側任何一路資料逾時或出現 NaN／Inf，建議同樣觸發停止，
-並把原因標成回授異常，不能再回到暖機來略過問題。
+一旦進入 `ARMED`，任何一路資料缺失、逾時或出現 NaN／Inf，僅警告並進入 `DEGRADED`，
+不發出停止要求。無效資料無法檢查力門檻；另一側及恢復後收到的有效資料仍立即檢查。
+雙側資料恢復後回到 `ARMED`，不重新暖機。
 用 monotonic 接收時間判斷 freshness，訂閱採 sensor-data 相容 QoS、短 queue，避免處理大量舊資料。
 這只能偵測 topic 層的中斷；若上游持續重發凍結的數值，仍需 driver 狀態／封包序號才能辨識。
 
@@ -116,7 +117,7 @@ thread join、網路接收及 RMI 呼叫；這不是整個停止程序的一秒�
 若需求是連回初始姿態的移動都忽略，就需要 motion script 明確發出完成訊號，不能用固定 3 秒猜測。
 
 最小版本的等待／暖機期間，limiter 尚未提供碰撞保護，既有命令入口仍能收到 target。
-應明確印出並發布 `WAITING/WARMUP/ARMED/TRIPPED/STOP_FAILED` 狀態，只有 `ARMED` 後才開始外部 motion。
+應明確印出並發布 `WAITING/WARMUP/ARMED/DEGRADED/TRIPPED/STOP_FAILED` 狀態，只有 `ARMED` 後才開始外部 motion。
 若要由程式保證暖機前完全不能開始外部運動，需增加啟動 gate，延後啟動 forward controller／interpolator；
 這比單一監測 node 多一層 launch 協調，列為下一步，不假裝第一版已具備。
 
@@ -130,8 +131,8 @@ thread join、網路接收及 RMI 呼叫；這不是整個停止程序的一秒�
 | `collision_force_threshold_n` | `20.0` | 任一軸絕對值門檻，須為有限正數 |
 
 初始化與逾時設定集中寫成 node 內部常數，不提供 launch argument 或 ROS parameter：
-雙側準備好後暖機忽略 3 秒、從 node 啟動至完成暖機最多 180 秒、啟用後任一側
-超過 0.2 秒沒有新 wrench 就觸發停止。這些時間是初始建議，實機驗證後再調整常數。
+雙側準備好後暖機忽略 3 秒；任一側超過 0.2 秒沒有新 wrench 判定為過期，
+只警告，不停止。啟動等待沒有超時停機；警告最多每 5 秒一次。
 
 stop service 的 deadline 可先固定在 node 內，例如每階段 3 秒、整個停止流程 8 秒，
 實作時讓異常路徑遵守總 deadline。這些數值是錯誤回報的等待預算，不是允許機械臂繼續移動的時間。
@@ -195,7 +196,7 @@ ros2 launch bimanual_manipulation bimanual_system.launch.py \
 ## 實作驗證順序
 
 1. 軟體測試：左右六個分量各自的正負超標、20 N 邊界、合力大但每軸小於 20 N、
-   NaN／Inf、暖機前後、暖機期間資料中斷、啟動逾時、監測後斷訊、觸發鎖住不自動恢復。
+   NaN／Inf、暖機前後、暖機期間資料中斷、長時間等待不停止、監測後斷訊僅警告及恢復、有效力超標觸發鎖住不自動恢復。
 2. Fake service 整合：確認單側超標會對兩側發要求；一側延遲／失敗不阻塞另一側；
    controller 停用失敗仍嘗試停 hardware；逾時不重複灌入請求；回應不符不得記為成功。
 3. 隔離 ROS domain 的 mock launch：檢查預設開關、read-only 分支、controller → hardware

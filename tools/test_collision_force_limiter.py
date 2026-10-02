@@ -56,10 +56,13 @@ def test_boundary_and_component_rule():
 
 
 @pytest.mark.parametrize('value', [math.nan, math.inf, -math.inf])
-def test_invalid_force_trips_after_arming(value):
+def test_invalid_force_does_not_stop_and_other_arm_still_protects(value):
     monitor = armed()
     monitor.receive('right', (0., value, 0.), 3.01)
-    assert monitor.state == 'TRIPPED' and 'invalid' in monitor.reason
+    monitor.update(3.01, True)
+    assert monitor.state == 'DEGRADED' and not monitor.reason
+    monitor.receive('left', (21., 0., 0.), 3.02)
+    assert monitor.state == 'TRIPPED' and 'left: Fx=' in monitor.reason
 
 
 @pytest.mark.parametrize('value', [0., -1., math.nan, math.inf])
@@ -82,7 +85,7 @@ def test_warmup_ignores_force_but_checks_latest_on_arm():
     assert monitor.state == 'TRIPPED'
 
 
-def test_warmup_loss_restarts_grace_but_not_startup_deadline():
+def test_warmup_loss_restarts_grace_without_startup_shutdown():
     monitor = limiter.ForceMonitor(20., 0.)
     samples(monitor, 0.)
     monitor.update(0., True)
@@ -93,14 +96,34 @@ def test_warmup_loss_restarts_grace_but_not_startup_deadline():
     assert monitor.state == 'WARMUP'
     samples(monitor, 180.)
     monitor.update(180., True)
-    assert monitor.state == 'TRIPPED' and monitor.startup_failed
+    assert monitor.state == 'WARMUP'
+    samples(monitor, 182.)
+    monitor.update(182., True)
+    assert monitor.state == 'ARMED'
 
 
-def test_stale_side_trips_without_reentering_warmup():
+def test_stale_side_recovers_without_stop_or_new_warmup():
     monitor = armed()
     monitor.receive('left', (0., 0., 0.), 3.21)
     monitor.update(3.21, False)
-    assert monitor.state == 'TRIPPED' and 'right' in monitor.reason
+    assert monitor.state == 'DEGRADED' and not monitor.reason
+    monitor.receive('right', (0., 0., 0.), 3.22)
+    monitor.update(3.22, False)
+    assert monitor.state == 'ARMED'
+
+
+def test_indefinite_missing_feedback_never_requests_stop():
+    monitor = limiter.ForceMonitor(20., 0.)
+    monitor.update(10000., True)
+    assert monitor.state == 'WAITING' and not monitor.reason
+    monitor = armed()
+    monitor.samples.clear()
+    monitor.update(10000., False)
+    assert monitor.state == 'DEGRADED' and not monitor.reason
+    # The first restored valid sample is checked immediately, even if the
+    # other side is still missing, rather than hiding it behind another warmup.
+    monitor.receive('right', (0., -21., 0.), 10001.)
+    assert monitor.state == 'TRIPPED' and 'right: Fy=' in monitor.reason
 
 
 class FakeClient:
@@ -166,11 +189,9 @@ def test_hardware_timeout_is_bounded_and_does_not_retry():
     assert len(switch.requests) == len(hardware.requests) == 1
 
 
-@pytest.mark.parametrize('startup_failed', [False, True])
-def test_unresponsive_left_does_not_delay_right_stop(startup_failed):
+def test_unresponsive_left_does_not_delay_right_stop():
     monitor = armed()
     monitor.trip('test bilateral stop')
-    monitor.startup_failed = startup_failed
     node = SimpleNamespace(
         monitor=monitor, stops=None, stop_started=None, stop_finished=False, exit_code=None,
         manager_clients={s: {'switch': FakeClient(), 'hardware': FakeClient()}
@@ -188,7 +209,7 @@ def test_unresponsive_left_does_not_delay_right_stop(startup_failed):
     node.manager_clients['left']['hardware'].future.set_result(hardware_response())
     tick(3.2)
     assert node.stop_finished
-    assert node.exit_code == (1 if startup_failed else None)
+    assert node.exit_code is None
 
 
 def wait(executor, predicate, timeout=8.):
@@ -261,6 +282,15 @@ def test_ros_transport_readiness_and_bilateral_latched_stop(monkeypatch, fail_le
         wait(executor, lambda: all(s in node.monitor.samples for s in limiter.SIDES))
         assert node.monitor.state == 'WAITING' and not calls
         hardware_active.update(left=True, right=True)
+        wait(executor, lambda: node.monitor.state == 'ARMED')
+        publish = False
+        wait(executor, lambda: node.monitor.state == 'DEGRADED')
+        assert not calls and node.stops is None and node.exit_code is None
+        publish = True
+        forces['right'] = math.nan
+        wait(executor, lambda: math.isnan(node.monitor.samples['right'][0][2]))
+        assert not calls
+        forces['right'] = 0.
         wait(executor, lambda: node.monitor.state == 'ARMED')
         forces['right'] = -21.
         wait(executor, lambda: node.stop_finished)

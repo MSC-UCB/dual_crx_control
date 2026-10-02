@@ -111,13 +111,15 @@ ros2 launch dual_crx_control dual_arm.launch.py mock:=false rviz:=false \
 Both feedback streams, controllers, hardware and stop services must be ready,
 followed by a 3-second warmup. **Wait for `ARMED` before starting motion.** This
 warmup ignores force thresholds, not an entire scripted move to an initial pose;
-there is no command gate during startup. After arming, invalid force data or a
-0.2-second feedback dropout also triggers the latched stop. Startup that cannot
-arm within 180 seconds requests a stop and shuts down launch. Read-only mode does
-not start the limiter. Timing values are internal constants.
+there is no command gate during startup. Missing/invalid force data or a
+0.2-second feedback dropout only emits a warning; it does not stop either arm.
+After arming, this sets `DEGRADED`: valid incoming samples still trigger the force
+threshold stop, and fresh valid data on both sides restores `ARMED` without warmup.
+Unavailable samples cannot be checked for force overload. Startup waits without
+a shutdown deadline. Read-only mode does not start the limiter. Timing values are internal constants.
 
 Inspect `/crx5ia/collision_force_limiter/state` (`std_msgs/msg/String`): `WAITING`,
-`WARMUP`, `ARMED`, `TRIPPED`, or `STOP_FAILED`. Stop failures or unexpected limiter
+`WARMUP`, `ARMED`, `DEGRADED`, `TRIPPED`, or `STOP_FAILED`. Stop failures or unexpected limiter
 exit shut down the enclosing launch. Normal successful trips leave it running;
 clear the contact and stop external command publishers before restarting.
 

@@ -22,7 +22,6 @@ from std_msgs.msg import String
 
 SIDES = ('left', 'right')
 STARTUP_GRACE_SEC = 3.0
-STARTUP_TIMEOUT_SEC = 180.0
 WRENCH_TIMEOUT_SEC = 0.2
 SERVICE_TIMEOUT_SEC = 3.0
 STOP_TIMEOUT_SEC = 8.0
@@ -42,7 +41,6 @@ class ForceMonitor:
         self.samples = {}
         self.warmup_at = None
         self.reason = ''
-        self.startup_failed = False
 
     def trip(self, reason):
         if self.state != 'TRIPPED':
@@ -50,13 +48,12 @@ class ForceMonitor:
 
     def receive(self, side, force, now):
         self.samples[side] = (tuple(force), now)
-        if self.state == 'ARMED':
+        if self.state in ('ARMED', 'DEGRADED'):
             self._check(side)
 
     def _check(self, side):
         force, _ = self.samples[side]
         if not all(math.isfinite(v) for v in force):
-            self.trip(f'{side}: invalid force feedback (NaN/Inf)')
             return
         for axis, value in zip('xyz', force):
             if abs(value) > self.threshold:
@@ -72,15 +69,10 @@ class ForceMonitor:
     def update(self, now, ready):
         if self.state == 'TRIPPED':
             return
-        if self.state == 'ARMED':
-            for side in SIDES:
-                if not self.fresh(side, now):
-                    self.trip(f'{side}: missing, stale or invalid force feedback')
-                    return
-            return
-        if now - self.created_at >= STARTUP_TIMEOUT_SEC:
-            self.startup_failed = True
-            self.trip('startup timed out before force monitoring became ARMED')
+        if self.state in ('ARMED', 'DEGRADED'):
+            # Data loss is diagnostic only. Keep checking every valid incoming
+            # sample, including the other arm, and recover without a new warmup.
+            self.state = 'ARMED' if all(self.fresh(s, now) for s in SIDES) else 'DEGRADED'
             return
         if not ready or not all(self.fresh(side, now) for side in SIDES):
             self.state, self.warmup_at = 'WAITING', None
@@ -252,8 +244,6 @@ class CollisionForceLimiter(Node):
                     f'Both hardware components confirmed inactive after {now-self.stop_started:.3f}s; '
                     'TRIPPED is latched. Stop external senders before restarting launch. '
                     'This acknowledgment does not measure physical stopping time.')
-                if self.monitor.startup_failed:
-                    self.exit_code = 1
 
     def publish_state(self):
         state = ('STOP_FAILED' if self.stop_finished and self.stops
@@ -267,6 +257,13 @@ class CollisionForceLimiter(Node):
         now = time.monotonic()
         ready = self.readiness(now) if self.monitor.state in ('WAITING', 'WARMUP') else False
         self.monitor.update(now, ready)
+        if self.monitor.state != 'TRIPPED':
+            missing = [s for s in SIDES if not self.monitor.fresh(s, now)]
+            if missing:
+                self.get_logger().warning(
+                    f'Force feedback missing/stale/invalid for {missing}; no stop requested. '
+                    'Force threshold cannot be checked for these samples; waiting for valid data.',
+                    throttle_duration_sec=5.0)
         self.process_stop(now)
         self.publish_state()
 
