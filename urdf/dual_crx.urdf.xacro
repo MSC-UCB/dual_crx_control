@@ -2,8 +2,12 @@
 <robot name="dual_crx" xmlns:xacro="http://wiki.ros.org/xacro">
   <xacro:arg name="left_xyz" default="0 0 0"/>
   <xacro:arg name="left_rpy" default="0 0 0"/>
+  <!-- Previous right arm base calibration:
   <xacro:arg name="right_xyz" default="0.02243080 -0.67894529 0.01039634"/>
   <xacro:arg name="right_rpy" default="0.00662890 -0.02062080 -1.55552523"/>
+  -->
+  <xacro:arg name="right_xyz" default="0.03058936 -0.91156264 0.00873476"/>
+  <xacro:arg name="right_rpy" default="0.00994493 -0.01029918 -1.54694055"/>
   <xacro:arg name="table_collision_size" default="0.30"/>
 
   <xacro:include filename="$(find fanuc_crx_description)/urdf/crx5ia_urdf_macro.xacro"/>
@@ -63,4 +67,3 @@
     <origin xyz="0.035 0 0" rpy="0 0 0"/>
   </joint>
 </robot>
-
