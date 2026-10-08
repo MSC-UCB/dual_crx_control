@@ -17,6 +17,21 @@ ROBOT_DESCRIPTION_TOPIC = f'{TOPIC_NAMESPACE}/robot_description'
 INTERPOLATION_NODE = f'{TOPIC_NAMESPACE}/joint_interpolation'
 
 
+def validate_active_arms(arms):
+    """Validate explicit selection and keep the established left/right ordering."""
+    if (not isinstance(arms, (list, tuple)) or not arms
+            or any(side not in SIDES for side in arms)
+            or len(set(arms)) != len(arms)):
+        raise ValueError('active_arms must contain left and/or right, without duplicates')
+    return tuple(side for side in SIDES if side in arms)
+
+
+def declare_active_arms(node):
+    from rcl_interfaces.msg import ParameterDescriptor
+    return validate_active_arms(node.declare_parameter(
+        'active_arms', list(SIDES), ParameterDescriptor(read_only=True)).value)
+
+
 def arm_topic(side, suffix):
     """Return an absolute topic for one fixed CRX5IA arm."""
     side = canonical_side(side)

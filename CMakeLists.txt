@@ -67,6 +67,10 @@ endif()
 
 if(BUILD_TESTING)
   find_package(ament_cmake_pytest REQUIRED)
+  ament_add_pytest_test(single_arm tools/test_single_arm.py TIMEOUT 90
+    ENV ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST OPENBLAS_NUM_THREADS=1 MPLCONFIGDIR=/tmp/dual_crx_matplotlib)
+  ament_add_pytest_test(single_arm_launch tools/test_single_arm_launch.py TIMEOUT 180
+    ENV ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST OPENBLAS_NUM_THREADS=1)
   ament_add_pytest_test(admittance tools/test_admittance_hand_guiding.py TIMEOUT 180
     ENV ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST OPENBLAS_NUM_THREADS=1)
   ament_add_pytest_test(collision_force_limiter tools/test_collision_force_limiter.py TIMEOUT 90

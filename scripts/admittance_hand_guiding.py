@@ -26,7 +26,7 @@ from std_msgs.msg import String
 from dual_crx_control.interpolation.client import JointTargetClient
 from dual_crx_control.robot.ik_solver import DampedLeastSquaresIK
 from dual_crx_control.robot.joint_config import (
-    JOINT_NAMES, JOINT_TARGETS_TOPIC, ROBOT_DESCRIPTION_TOPIC, SIDES, arm_topic, ordered_feedback)
+    JOINT_NAMES, JOINT_TARGETS_TOPIC, ROBOT_DESCRIPTION_TOPIC, SIDES, arm_topic, ordered_feedback, declare_active_arms)
 from dual_crx_control.robot.kinematics import CRXKinematics
 
 
@@ -278,16 +278,18 @@ class ArmAdmittance:
 class AdmittanceNode(Node):
     def __init__(self, **kwargs):
         super().__init__('admittance_hand_guiding', **kwargs)
-        self.arms = {s: ArmAdmittance(s) for s in SIDES}
+        self.active_arms = declare_active_arms(self)
+        self.arms = {s: ArmAdmittance(s) for s in self.active_arms}
         self.target_clients = {subset: JointTargetClient(self, arms=subset)
-                               for subset in [('left',), ('right',), SIDES]}
+                               for subset in [('left',), ('right',), SIDES]
+                               if set(subset).issubset(self.active_arms)}
         self.lock = threading.Lock()
         self.requests, self.snapshot = {}, {}
-        self.generations = {s: 0 for s in SIDES}
+        self.generations = {s: 0 for s in self.active_arms}
         self.shutdown_requested = threading.Event()
         self.done = threading.Event()
         self.worker_error = ''
-        self.input_errors = {s: '' for s in SIDES}
+        self.input_errors = {s: '' for s in self.active_arms}
         self.limiter_state, self.description, self.model_error = '', '', ''
         self.chain_error, self.next_graph_check = 'waiting for control stack', 0.
         sensor_qos = QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT)
@@ -333,6 +335,8 @@ class AdmittanceNode(Node):
 
     def request(self, side, action, value=None):
         """GUI thread entry; last request wins and Disable invalidates in-flight work."""
+        if side not in self.arms:
+            return  # Inactive GUI panels cannot enqueue control requests.
         with self.lock:
             request = self.requests.setdefault(side, {})
             if action == 'axes':
@@ -382,9 +386,9 @@ class AdmittanceNode(Node):
         if now >= self.next_graph_check:
             self.next_graph_check = now+.5
             self.chain_error = (
-                'missing interpolation subscriber' if not self.target_clients[SIDES].available() else
+                'missing interpolation subscriber' if not self.target_clients[self.active_arms].available() else
                 'collision limiter unavailable' if self.count_publishers(LIMITER_TOPIC) == 0 else
-                'another joint-target publisher is active' if self.count_publishers(JOINT_TARGETS_TOPIC) > 3 else '')
+                'another joint-target publisher is active' if self.count_publishers(JOINT_TARGETS_TOPIC) > len(self.target_clients) else '')
         proposals = {}
         for side, arm in self.arms.items():
             request = requests.get(side, {})
@@ -438,7 +442,7 @@ class AdmittanceNode(Node):
                     arm.stop(reason, fault=True)
                     del proposals[side]
             if proposals:
-                subset = tuple(s for s in SIDES if s in proposals)
+                subset = tuple(s for s in self.active_arms if s in proposals)
                 self.target_clients[subset].publish({s: c[2] for s, c in proposals.items()})
                 for side, candidate in proposals.items():
                     self.arms[side].commit(candidate)
@@ -498,6 +502,11 @@ class AdmittanceWindow:
             for row, key in enumerate(('gains', 'gain_error', 'frame', 'age', 'values', 'error'), start=11):
                 ttk.Label(panel, textvariable=labels[key], justify='left', wraplength=520).grid(
                     row=row, column=0, columnspan=4, sticky='w', pady=4)
+            if side not in node.active_arms:
+                labels['state'].set('Not active')
+                for widget in panel.winfo_children():
+                    if isinstance(widget, (ttk.Button, ttk.Checkbutton, ttk.Entry)):
+                        widget.state(['disabled'])
         self.root.protocol('WM_DELETE_WINDOW', self.close)
         self.refresh()
 

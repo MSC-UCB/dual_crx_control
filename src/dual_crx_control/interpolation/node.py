@@ -16,7 +16,7 @@ from std_msgs.msg import Float64MultiArray
 from dual_crx_control.interpolation.trajectory import JointSegment, OUTPUT_RATE_HZ, validate_rate
 from dual_crx_control.robot.joint_config import (
     INTERPOLATED_COMMANDS_TOPIC, JOINT_NAMES,
-    JOINT_TARGETS_TOPIC, SIDES, arm_topic)
+    JOINT_TARGETS_TOPIC, SIDES, arm_topic, declare_active_arms)
 
 
 def joint_targets(message):
@@ -36,6 +36,7 @@ def joint_targets(message):
 class InterpolationNode(Node):
     def __init__(self, **kwargs):
         super().__init__('joint_interpolation', **kwargs)
+        self.active_arms = declare_active_arms(self)
         self.input_rate = validate_rate(self.declare_parameter(
             'input_rate_hz', 50.0, ParameterDescriptor(read_only=True)).value)
         self.method = self.declare_parameter(
@@ -78,10 +79,10 @@ class InterpolationNode(Node):
                 'zero terminal velocity/acceleration; horizon extends to satisfy '
                 'the same experimental planning limits as Ruckig')
         self.positions, self.segments, self.last_q, self.last_publish = {}, {}, {}, {}
-        self.history = {s: deque(maxlen=5) for s in SIDES}
+        self.history = {s: deque(maxlen=5) for s in self.active_arms}
         self.pending = None
         self.arm_publishers = {}
-        for side in SIDES:
+        for side in self.active_arms:
             self.arm_publishers[side] = self.create_publisher(
                 Float64MultiArray, arm_topic(side, 'forward_position_controller/commands'), 1)
             self.create_subscription(JointState, arm_topic(side, 'joint_states'),
@@ -119,6 +120,8 @@ class InterpolationNode(Node):
     def target(self, msg):
         try:
             commands = joint_targets(msg)
+            if not set(commands).issubset(self.active_arms):
+                raise ValueError('target includes an inactive arm')
             if any(s not in self.positions and s not in self.last_q for s in commands):
                 self.pending = commands
                 return
@@ -161,7 +164,7 @@ class InterpolationNode(Node):
             self.get_logger().warning('Nonfinite interpolation sample rejected.', throttle_duration_sec=2.)
             return
         report = JointState()
-        for side in SIDES:
+        for side in self.active_arms:
             if side not in commands:
                 continue
             q = commands[side]

@@ -53,6 +53,112 @@ source /opt/ros/jazzy/setup.bash
 source install/setup.bash
 ```
 
+## Single-arm bringup
+
+Select the only active arm with `prefix:=left_` or `prefix:=right_`:
+
+```bash
+# Left arm only
+ros2 launch dual_crx_control single_arm.launch.py prefix:=left_ mock:=true rviz:=false
+
+# Right arm only
+ros2 launch dual_crx_control single_arm.launch.py prefix:=right_ mock:=true rviz:=false
+```
+
+The default `control:=none` starts the control stack without sending motion targets.
+Only the selected arm's driver, controllers, feedback subscriptions and command
+publishers are created. The shared `/crx5ia/joint_targets` interface accepts that
+arm's six joints; targets containing the inactive arm are rejected as a whole.
+All four interpolation methods (`linear`, `cubic`, `ruckig`, `quintic`) support this
+mode. Public joint feedback contains only the selected six joints.
+
+The combined world URDF and its static TF remain available to preserve base
+calibration and TCP definitions; no feedback is fabricated for the inactive arm.
+RViz may therefore show an incomplete inactive arm. Global ROS topics such as
+`/tf`, `/rosout`, and `/parameter_events` are expected.
+
+Choose one optional control program when starting the launch:
+
+```bash
+# Two-panel admittance GUI; the inactive panel is disabled. Click Enable to guide.
+ros2 launch dual_crx_control single_arm.launch.py prefix:=right_ mock:=true rviz:=false control:=admittance
+
+# Automatically start a Cartesian sine motion from the measured pose.
+ros2 launch dual_crx_control single_arm.launch.py prefix:=left_ mock:=true rviz:=false control:=cartesian
+```
+
+The launch passes `active_arms` to every selected control node. Cartesian input
+rate follows `input_rate_hz`; admittance runs at 100 Hz, so use `input_rate_hz:=100.0`
+(the default) with admittance. `move_to_initial:=true` enables an initial approach
+to `config/initial_pose.yaml` before the launch's Cartesian sine motion; its default
+is `false`. Admittance retains the force limiter and waits for `ARMED`.
+The single-arm software mock initializes its wrench sensor to zero; physical
+sensor readings are never overridden.
+
+For custom trajectories, start with `control:=none`, then run **one** sender in
+another sourced terminal. Explicitly select the same arm; independently started
+nodes otherwise retain their dual-arm defaults:
+
+```bash
+ros2 run dual_crx_control cartesian_sine.py --rate 100 --no-move-to-initial --ros-args -p 'active_arms:=[left]'
+ros2 run dual_crx_control cartesian_circle.py --rate 100 --no-move-to-initial --ros-args -p 'active_arms:=[left]'
+ros2 run dual_crx_control admittance_hand_guiding.py --ros-args -p 'active_arms:=[left]'
+```
+
+`facing_circle` / `face_each_other` requires both arms and rejects single-arm
+configuration. Other motion entry points retain their existing selection behavior;
+this launch's `active_arms` support applies to the Cartesian sine/circle and
+admittance programs above.
+
+### Keyboard jogging with a single arm
+
+Start the single-arm stack with `method:=ruckig` and `control:=none`, then run the
+keyboard program separately in an interactive terminal. Source the workspace in
+both terminals. The keyboard program requires Ruckig; the launch's default
+`quintic` method will leave it disarmed.
+
+```bash
+# Terminal 1: right-arm software mock, without an automatic motion sender
+ros2 launch dual_crx_control single_arm.launch.py \
+  prefix:=right_ mock:=true rviz:=false \
+  method:=ruckig input_rate_hz:=50.0 control:=none
+
+# Terminal 2: keep this terminal focused for keyboard input
+ros2 run dual_crx_control keyboard_control.py
+```
+
+Press `2`, then `e`, then `w` separately to select the right arm, enable jogging
+at its measured pose, and request one positive world-X step. For the left arm,
+use `prefix:=left_` and press `1` before `e`. Keys `w/s`, `a/d`, and `r/f` jog
+world X, Y, and Z; Space disarms and `q` exits. Disarming does not cancel a target
+already accepted by the interpolator. Run only one motion sender at a time.
+
+The keyboard program defaults to the left arm and does not use `active_arms`.
+It checks feedback only for the selected arm, so the other arm being offline
+does not prevent jogging. Selecting the inactive arm and pressing `e` reports
+`stale/missing feedback` and leaves control disarmed. It still subscribes to both
+arms' `joint_states`, so the inactive arm's topic can appear with a subscriber
+and no publisher; this does not start that arm's driver or generate feedback.
+
+### Read-only mode and validation
+
+Use `read_only:=true control:=none` for state and wrench feedback without motion
+controllers. For physical hardware, set `mock:=false` and the selected
+`left_robot_ip` or `right_robot_ip`; the other driver is never started. Other
+options are listed by `ros2 launch dual_crx_control single_arm.launch.py --show-args`.
+
+```bash
+ros2 launch dual_crx_control single_arm.launch.py \
+  prefix:=left_ mock:=true rviz:=false read_only:=true control:=none
+```
+
+Software-only checks after building:
+
+```bash
+python3 -m pytest -q src/dual_crx_control/tools/test_single_arm.py
+SINGLE_ARM_ROS_MOCK=1 python3 -m pytest -q src/dual_crx_control/tools/test_single_arm_launch.py
+```
+
 ## Quick start: a small joint motion in mock mode
 
 Mock startup uses [config/initial_pose.yaml](config/initial_pose.yaml):

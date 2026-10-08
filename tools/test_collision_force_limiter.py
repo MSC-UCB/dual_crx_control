@@ -193,6 +193,7 @@ def test_unresponsive_left_does_not_delay_right_stop():
     monitor = armed()
     monitor.trip('test bilateral stop')
     node = SimpleNamespace(
+        active_arms=limiter.SIDES,
         monitor=monitor, stops=None, stop_started=None, stop_finished=False, exit_code=None,
         manager_clients={s: {'switch': FakeClient(), 'hardware': FakeClient()}
                          for s in limiter.SIDES},

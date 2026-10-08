@@ -126,7 +126,8 @@ class JointRecording:
 class MotionRecording:
     """Bounded in-memory recording with independent command/feedback timestamps."""
 
-    def __init__(self, axis, max_samples=60000, plane=None):
+    def __init__(self, axis, max_samples=60000, plane=None, arms=('left', 'right')):
+        self.arms = tuple(arms)
         self.axis = axis
         if plane is not None and plane not in ('xy', 'xz', 'yz'):
             raise ValueError('plot plane must be xy/xz/yz')
@@ -137,7 +138,7 @@ class MotionRecording:
         self.commands = deque(maxlen=max_samples)
         self.targets = deque(maxlen=max_samples)
         self.target_count = 0
-        self.feedback = {s: deque(maxlen=max_samples) for s in ('left', 'right')}
+        self.feedback = {s: deque(maxlen=max_samples) for s in self.arms}
         self.command_count = 0
         self.feedback_count = dict.fromkeys(self.feedback, 0)
 
@@ -150,13 +151,13 @@ class MotionRecording:
     def command(self, received_at, joints):
         if self.started_at is not None:
             self.commands.append((received_at - self.started_at,
-                                  np.array([joints[s] for s in ('left', 'right')], copy=True)))
+                                  np.array([joints[s] for s in self.arms], copy=True)))
             self.command_count += 1
 
     def target(self, received_at, joints):
         if self.started_at is not None:
             self.targets.append((received_at - self.started_at,
-                                 np.array([joints[s] for s in ('left', 'right')], copy=True)))
+                                 np.array([joints[s] for s in self.arms], copy=True)))
             self.target_count += 1
 
     def measured(self, side, received_at, joints, stamp):
@@ -199,8 +200,9 @@ class MotionRecording:
         import matplotlib
         matplotlib.use('Agg')
         import matplotlib.pyplot as plt
-        fig, axes = (plt.subplots(1, 2, figsize=(11, 5)) if self.plane
-                     else plt.subplots(2, 1, figsize=(10, 7), sharex=True))
+        fig, axes = (plt.subplots(1, len(self.arms), figsize=(6 * len(self.arms), 5)) if self.plane
+                     else plt.subplots(len(self.arms), 1, figsize=(10, 4 * len(self.arms)), sharex=True))
+        axes = np.atleast_1d(axes)
         for ax, side in zip(axes, self.feedback):
             for source, label, style in [('command', 'Command (published joints → FK)', '-'),
                                          ('feedback', 'Measured (joint feedback → FK)', '--')]:

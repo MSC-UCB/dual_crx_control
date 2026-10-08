@@ -1,7 +1,7 @@
 """Latched dual-arm force stop using the existing controller-manager services.
 
 This is a software interlock, not a hard real-time or hardware emergency stop.
-Only the force threshold is configurable; timing constants stay internal.
+The force threshold and active arms are configurable; timing constants stay internal.
 """
 from functools import partial
 import math
@@ -19,8 +19,9 @@ from geometry_msgs.msg import WrenchStamped
 from lifecycle_msgs.msg import State
 from std_msgs.msg import String
 
+from dual_crx_control.robot.joint_config import SIDES, declare_active_arms, validate_active_arms
 
-SIDES = ('left', 'right')
+
 STARTUP_GRACE_SEC = 3.0
 WRENCH_TIMEOUT_SEC = 0.2
 SERVICE_TIMEOUT_SEC = 3.0
@@ -32,7 +33,8 @@ READINESS_MAX_AGE_SEC = 1.5
 class ForceMonitor:
     """Clock-driven policy independent of ROS transport, with no automatic reset."""
 
-    def __init__(self, threshold, now):
+    def __init__(self, threshold, now, active_arms=SIDES):
+        self.active_arms = validate_active_arms(active_arms)
         if not math.isfinite(threshold) or threshold <= 0:
             raise ValueError('collision_force_threshold_n must be finite and positive')
         self.threshold = threshold
@@ -72,16 +74,16 @@ class ForceMonitor:
         if self.state in ('ARMED', 'DEGRADED'):
             # Data loss is diagnostic only. Keep checking every valid incoming
             # sample, including the other arm, and recover without a new warmup.
-            self.state = 'ARMED' if all(self.fresh(s, now) for s in SIDES) else 'DEGRADED'
+            self.state = 'ARMED' if all(self.fresh(s, now) for s in self.active_arms) else 'DEGRADED'
             return
-        if not ready or not all(self.fresh(side, now) for side in SIDES):
+        if not ready or not all(self.fresh(side, now) for side in self.active_arms):
             self.state, self.warmup_at = 'WAITING', None
             return
         if self.warmup_at is None:
             self.state, self.warmup_at = 'WARMUP', now
         if now - self.warmup_at >= STARTUP_GRACE_SEC:
             self.state = 'ARMED'
-            for side in SIDES:
+            for side in self.active_arms:
                 self._check(side)
 
 
@@ -143,11 +145,12 @@ class ArmStop:
 class CollisionForceLimiter(Node):
     def __init__(self, **kwargs):
         super().__init__('collision_force_limiter', **kwargs)
+        self.active_arms = declare_active_arms(self)
         threshold = self.declare_parameter(
             'collision_force_threshold_n', 20.0,
             ParameterDescriptor(read_only=True)).value
         now = time.monotonic()
-        self.monitor = ForceMonitor(threshold, now)
+        self.monitor = ForceMonitor(threshold, now, self.active_arms)
         self.stops = None
         self.stop_started = None
         self.stop_finished = False
@@ -158,7 +161,7 @@ class CollisionForceLimiter(Node):
         self.status = self.create_publisher(
             String, '/crx5ia/collision_force_limiter/state',
             QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL))
-        for side in SIDES:
+        for side in self.active_arms:
             root = f'/crx5ia/{side}/controller_manager'
             self.manager_clients[side] = {
                 'switch': self.create_client(SwitchController, root + '/switch_controller'),
@@ -175,7 +178,7 @@ class CollisionForceLimiter(Node):
         self.timer = self.create_timer(
             0.02, self.tick, clock=Clock(clock_type=ClockType.STEADY_TIME))
         self.get_logger().info(
-            f'Collision force limit: |Fx/Fy/Fz| > {threshold:g} N on either arm stops BOTH arms; '
+            f'Collision force limit: |Fx/Fy/Fz| > {threshold:g} N stops {self.active_arms}; '
             f'{STARTUP_GRACE_SEC:g}s warmup after readiness. Wait for ARMED before motion.')
         self.publish_state()
 
@@ -201,17 +204,17 @@ class CollisionForceLimiter(Node):
                 self.ready_results[key] = (False, now)
         if now >= self.next_probe:
             self.next_probe = now + READINESS_POLL_SEC
-            for side in SIDES:
+            for side in self.active_arms:
                 for kind, service in [('controllers', ListControllers),
                                       ('components', ListHardwareComponents)]:
                     key, client = (side, kind), self.manager_clients[side][kind]
                     if key not in self.probes and client.service_is_ready():
                         self.probes[key] = (client.call_async(service.Request()), now)
         return (all(self.manager_clients[s][k].service_is_ready()
-                    for s in SIDES for k in ('switch', 'hardware'))
+                    for s in self.active_arms for k in ('switch', 'hardware'))
                 and all(self.ready_results.get((s, k), (False, 0))[0]
                         and now - self.ready_results[(s, k)][1] <= READINESS_MAX_AGE_SEC
-                        for s in SIDES for k in ('controllers', 'components')))
+                        for s in self.active_arms for k in ('controllers', 'components')))
 
     def receive(self, side, message):
         f = message.wrench.force
@@ -228,7 +231,7 @@ class CollisionForceLimiter(Node):
             self.get_logger().error(f'TRIPPED at monotonic={now:.6f}: {self.monitor.reason}')
             self.stops = {
                 s: ArmStop(s, self.manager_clients[s]['switch'], self.manager_clients[s]['hardware'],
-                           now, self.get_logger().error) for s in SIDES}
+                           now, self.get_logger().error) for s in self.active_arms}
         for stop in self.stops.values():
             stop.tick(now)
         if (all(stop.stage == 'done' for stop in self.stops.values())
@@ -241,7 +244,8 @@ class CollisionForceLimiter(Node):
                 self.exit_code = 1
             else:
                 self.get_logger().warning(
-                    f'Both hardware components confirmed inactive after {now-self.stop_started:.3f}s; '
+                    ('Both hardware components' if len(self.active_arms) == 2 else 'Selected hardware component')
+                    + f' confirmed inactive after {now-self.stop_started:.3f}s; '
                     'TRIPPED is latched. Stop external senders before restarting launch. '
                     'This acknowledgment does not measure physical stopping time.')
 
@@ -258,7 +262,7 @@ class CollisionForceLimiter(Node):
         ready = self.readiness(now) if self.monitor.state in ('WAITING', 'WARMUP') else False
         self.monitor.update(now, ready)
         if self.monitor.state != 'TRIPPED':
-            missing = [s for s in SIDES if not self.monitor.fresh(s, now)]
+            missing = [s for s in self.active_arms if not self.monitor.fresh(s, now)]
             if missing:
                 self.get_logger().warning(
                     f'Force feedback missing/stale/invalid for {missing}; no stop requested. '

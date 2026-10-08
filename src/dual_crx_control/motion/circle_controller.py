@@ -26,8 +26,10 @@ class DualCircleController(DualCartesianController):
         parameters = {k: self.declare_parameter(k, v).value for k, v in defaults.items()}
         radius, plane, direction = (parameters[k] for k in ('radius', 'plane', 'direction'))
         self.circle = CircularTrajectory(radius, self.settings['period'], plane, direction)
-        self.recording = MotionRecording(self.circle.axes[0], plane=plane)
+        self.recording = MotionRecording(self.circle.axes[0], plane=plane, arms=self.active_arms)
         self.face_each_other = parameters['face_each_other']
+        if self.face_each_other and len(self.active_arms) != 2:
+            raise ValueError('face_each_other / facing_circle requires both active arms')
         self.center_midpoint = parameters['center_midpoint']
         self.tcp_gap = parameters['tcp_gap']
         self.minimum_sigma = parameters['minimum_scaled_sigma']

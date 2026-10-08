@@ -21,7 +21,7 @@ from dual_crx_control.motion.startup_motion import INITIAL_JOINTS_DEG, InitialJo
 from dual_crx_control.interpolation.client import JointTargetClient
 from dual_crx_control.analysis.motion_recording import JointRecording, MotionRecording
 from dual_crx_control.robot.joint_config import (
-    INTERPOLATED_COMMANDS_TOPIC, ROBOT_DESCRIPTION_TOPIC, arm_topic)
+    INTERPOLATED_COMMANDS_TOPIC, ROBOT_DESCRIPTION_TOPIC, arm_topic, declare_active_arms)
 
 
 class DualCartesianController(Node):
@@ -38,6 +38,7 @@ class DualCartesianController(Node):
 
     def __init__(self, *, node_name='cartesian_sine', motion_defaults=None, **kwargs):
         super().__init__(node_name, **kwargs)
+        self.active_arms = declare_active_arms(self)
         defaults = self.DEFAULTS.copy()
         defaults.update(motion_defaults or {})
         self.settings = {k: self.declare_parameter(k, v).value for k, v in defaults.items()}
@@ -61,20 +62,20 @@ class DualCartesianController(Node):
         self.move_to_initial = self.declare_parameter('move_to_initial', True).value
         self.initial_targets = {
             side: np.radians(self.declare_parameter(f'{side}_initial_deg', angles).value)
-            for side, angles in INITIAL_JOINTS_DEG.items()}
+            for side, angles in INITIAL_JOINTS_DEG.items() if side in self.active_arms}
         self.initial_move = None
         self.initial_move_started = None
         self.initial_settled_since = None
         self.axis = ('x', 'y', 'z').index(p['axis'])
         self.save_plot = self.declare_parameter('save_plot', True).value
         self.output_dir = self.declare_parameter('output_dir', 'motion_recordings').value
-        self.recording = MotionRecording(self.axis)
+        self.recording = MotionRecording(self.axis, arms=self.active_arms)
         description = self.declare_parameter('robot_description', '').value
         self.models = {}
         self.description = ''
         self.solvers = {}
         self.arm_publishers = {}
-        self.target_client = JointTargetClient(self)
+        self.target_client = JointTargetClient(self, arms=self.active_arms)
         self.positions, self.received = {}, {}
         self.starts = None
         self.previous = {}
@@ -99,10 +100,10 @@ class DualCartesianController(Node):
             self.create_subscription(
                 String, ROBOT_DESCRIPTION_TOPIC, self.description_callback,
                 QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL))
-        self.get_logger().info('Waiting for robot description, both joint states, and command subscribers...')
+        self.get_logger().info('Waiting for robot description, selected joint states, and command subscribers...')
         self.get_logger().info(f"Joint target rate: {p['rate']} Hz; output owned by interpolation node")
         self.create_subscription(JointState, INTERPOLATED_COMMANDS_TOPIC, self.record_command, 10)
-        self.joint_recording = JointRecording(self.output_dir, target_source='target') if self.save_plot else None
+        self.joint_recording = JointRecording(self.output_dir, target_source='target', arms=self.active_arms) if self.save_plot else None
         if self.joint_recording is not None:
             self.create_timer(1., self.joint_recording.flush, clock=Clock(clock_type=ClockType.STEADY_TIME))
 
@@ -120,7 +121,7 @@ class DualCartesianController(Node):
             self.abort(f'invalid robot_description: {exc}')
 
     def configure_model(self, description):
-        self.models = {side: CRXKinematics(description, f'{side}_tcp') for side in ('left', 'right')}
+        self.models = {side: CRXKinematics(description, f'{side}_tcp') for side in self.active_arms}
         p = self.settings
         for side, model in self.models.items():
             if model.joint_names != [f'{side}_J{i}' for i in range(1, 7)]:
@@ -189,14 +190,14 @@ class DualCartesianController(Node):
     def reject_target(self, reason):
         now = time.monotonic()
         if now - self.last_rejection_time >= 1.:
-            self.get_logger().warning(f'Target pair rejected: {reason}; retaining previous segment for both arms.')
+            self.get_logger().warning(f'Target pair rejected: {reason}; retaining previous segment for selected arms.')
             self.last_rejection_time = now
 
     def accept_targets(self, commands):
-        pair = np.array([commands[s] for s in ('left', 'right')])
+        pair = np.array([commands[s] for s in self.active_arms])
         old = (self.segment_target if self.segment_target is not None
-               else np.array([self.previous[s] for s in ('left', 'right')]))
-        for i, side in enumerate(('left', 'right')):
+               else np.array([self.previous[s] for s in self.active_arms]))
+        for i, side in enumerate(self.active_arms):
             if not self.models[side].valid_joints(pair[i]):
                 raise ValueError(f'{side}: invalid IK target / joint-limit violation')
             delta = np.abs(pair[i] - old[i])
@@ -210,7 +211,7 @@ class DualCartesianController(Node):
         self.publish_pair(commands)
 
     def initial_move_cycle(self, now):
-        """Return true only after both arms have reached and held their targets."""
+        """Return true only after selected arms have reached and held their targets."""
         p = self.settings
         if self.initial_move is None:
             self.previous = {s: q.copy() for s, q in self.positions.items()}
@@ -219,7 +220,7 @@ class DualCartesianController(Node):
                 min(p['initial_max_velocity'], p['max_velocity']), p['initial_max_acceleration'])
             self.initial_move_started = now
             self.get_logger().info(
-                f'Moving both arms to initial joints over {self.initial_move.duration:.2f} s.')
+                f'Moving selected arms to initial joints over {self.initial_move.duration:.2f} s.')
             for side in self.models:
                 self.get_logger().info(f'{side} initial target [deg]: '
                                        f'{np.degrees(self.initial_targets[side]).tolist()}')
@@ -237,7 +238,7 @@ class DualCartesianController(Node):
             if self.initial_settled_since is None:
                 self.initial_settled_since = now
             if now - self.initial_settled_since >= p['initial_settle_time']:
-                self.get_logger().info('Both arms reached initial joints; starting Cartesian motion next cycle.')
+                self.get_logger().info('Selected arms reached initial joints; starting Cartesian motion next cycle.')
                 return True
         else:
             self.initial_settled_since = None
@@ -269,13 +270,13 @@ class DualCartesianController(Node):
             if not self.previous:
                 self.previous = {s: q.copy() for s, q in self.positions.items()}
             # Preserve the last commanded seed, and capture measured TCP poses
-            # only after both arms have settled at the initial joints.
+            # only after selected arms have settled at the initial joints.
             self.starts = {s: m.fk(self.positions[s]) for s, m in self.models.items()}
             self.started_at = now
             if self.save_plot:
                 self.recording.begin(now, self.starts)
             if self.segment_target is None:
-                self.segment_target = np.array([self.previous[s] for s in ('left', 'right')])
+                self.segment_target = np.array([self.previous[s] for s in self.active_arms])
             for side in self.models:
                 self.get_logger().info(f'{side} initial q [rad]: {self.previous[side].tolist()}')
                 self.get_logger().info(f'{side} initial TCP in world (4x4):\n{self.starts[side]}')
@@ -290,11 +291,11 @@ class DualCartesianController(Node):
         self.last_ik_time = now
         if self.first_ik_time is None:
             self.first_ik_time = now
-        # Both IK solutions are computed and validated before either publication.
+        # All selected IK solutions are computed and validated before either publication.
         for side in self.models:
             target = self.starts[side].copy()
             target[:3, 3] += offset
-            result = self.solvers[side].solve(target, self.segment_target[('left', 'right').index(side)])
+            result = self.solvers[side].solve(target, self.segment_target[self.active_arms.index(side)])
             if not result.success:
                 self.reject_target(f'IK failed for {side}: {result.reason}; '
                                  f'position error={result.position_error:.6g} m, '
@@ -371,7 +372,7 @@ class DualCartesianController(Node):
             for side, q in commands.items():
                 self.joint_recording.add(received_at, side, 'interpolated', q)
         if self.cartesian_complete and all(
-                np.array_equal(commands[s], self.segment_target[i]) for i, s in enumerate(('left', 'right'))):
+                np.array_equal(commands[s], self.segment_target[i]) for i, s in enumerate(self.active_arms)):
             self.finished = True
             self.timer.cancel()
             self.get_logger().info('Finite motion finished; interpolation keeps holding the last joint target.')
