@@ -6,8 +6,8 @@ Setup (in both terminals, from your ROS workspace):
     source install/setup.bash
 
 Usage:
-    # Terminal 1: software/mock bringup with Ruckig
-    ros2 launch dual_crx_control dual_arm.launch.py mock:=true method:=ruckig
+    # Terminal 1: software/mock bringup with quintic interpolation
+    ros2 launch dual_crx_control dual_arm.launch.py mock:=true method:=quintic
     # Terminal 2: keyboard input (keep this terminal focused)
     ros2 run dual_crx_control keyboard_control.py
     # Optional smaller step:
@@ -36,15 +36,15 @@ Parameters (ROS --ros-args -p name:=value):
     max_joint_velocity=0.5      Target increment / 0.02 s limit, rad/s.
     tracking_tolerance=0.1      Maximum target-to-feedback joint error, radians.
     robot_description=''       Otherwise read transient-local /crx5ia/robot_description.
-Input checks run at 50 Hz; existing Ruckig interpolation outputs at 500 Hz with
+Input checks run at 50 Hz; quintic interpolation outputs at 500 Hz with
 its configured velocity/acceleration/jerk limits, NOT a fixed 20 ms arrival time.
-The node requires /crx5ia/joint_interpolation to report method=ruckig before enabling.
+The node requires /crx5ia/joint_interpolation to report method=quintic before enabling.
 
 Safety:
     No Cartesian displacement radius is enforced around the enable position.
     Use ONE command source only; stop other teleop/motion publishers first.
     Start in mock. No collision checking or certified safety stop is provided.
-    Space, switching arms and exit do NOT cancel an accepted Ruckig trajectory:
+    Space, switching arms and exit do NOT cancel an accepted quintic trajectory:
     it can finish the last target before holding. Use the hardware emergency stop
     when needed. The unselected arm receives no new targets from this program.
     Joint-space interpolation does not guarantee a straight TCP path or constant

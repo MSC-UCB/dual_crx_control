@@ -112,16 +112,16 @@ admittance programs above.
 
 ### Keyboard jogging with a single arm
 
-Start the single-arm stack with `method:=ruckig` and `control:=none`, then run the
+Start the single-arm stack with `method:=quintic` and `control:=none`, then run the
 keyboard program separately in an interactive terminal. Source the workspace in
-both terminals. The keyboard program requires Ruckig; the launch's default
-`quintic` method will leave it disarmed.
+both terminals. The keyboard program uses the same quintic method as the launch
+default.
 
 ```bash
 # Terminal 1: right-arm software mock, without an automatic motion sender
 ros2 launch dual_crx_control single_arm.launch.py \
   prefix:=right_ mock:=true rviz:=false \
-  method:=ruckig input_rate_hz:=50.0 control:=none
+  method:=quintic input_rate_hz:=100.0 control:=none
 
 # Terminal 2: keep this terminal focused for keyboard input
 ros2 run dual_crx_control keyboard_control.py
@@ -177,7 +177,7 @@ Starting a motion script separately can command an initial approach.
 
 ```bash
 ros2 launch dual_crx_control dual_arm.launch.py \
-  mock:=true rviz:=true method:=linear input_rate_hz:=50.0 collision_force_limit:=false
+  mock:=true rviz:=true method:=quintic input_rate_hz:=50.0 collision_force_limit:=false
 ```
 
 This starts both simulated arms, their controllers, the interpolation node, and RViz. Wait for the controllers to finish starting before sending motion commands. Use `rviz:=false` if a graphical display is unavailable.
@@ -366,7 +366,7 @@ to feedback and do not send motion commands.
 | Task | Launch | Command source |
 | --- | --- | --- |
 | Run predefined trajectories | `dual_arm.launch.py` | One of the trajectory scripts below |
-| Move a TCP with the keyboard | `dual_arm.launch.py method:=ruckig` | `keyboard_control.py` |
+| Move a TCP with the keyboard | `dual_arm.launch.py method:=quintic` | `keyboard_control.py` |
 | Connect an external teleoperation program | `dual_arm.launch.py` | Publish `JointState` to `/crx5ia/joint_targets` |
 
 ### Return both arms to the default position
@@ -449,44 +449,21 @@ This configuration uses a 0.2 m TCP gap, unlike the 0.02 m default of `facing_ci
 
 ### Keyboard TCP control
 
-In terminal 1, launch with Ruckig:
-
-```bash
-ros2 launch dual_crx_control dual_arm.launch.py mock:=true rviz:=true method:=ruckig
-```
-
-Ruckig keeps independent absolute targets as rest-to-rest waypoints by default.
-For a low-frequency reference stream, opt in explicitly:
+In terminal 1, launch with quintic interpolation (also the launch default):
 
 ```bash
 ros2 launch dual_crx_control dual_arm.launch.py \
-  mock:=true rviz:=false method:=ruckig \
-  input_rate_hz:=10.0 ruckig_target_mode:=stream \
-  ruckig_target_timeout:=0.2
+  mock:=true rviz:=true method:=quintic input_rate_hz:=100.0
 ```
 
-In `stream` mode, `input_rate_hz` describes the expected reference period. The
-interpolator estimates bounded target derivatives from arrival times and keeps
-tracking between samples. A dropout longer than `ruckig_target_timeout` changes
-the terminal derivatives to zero and holds the last target. The reference can
-therefore have up to one input period of phase lag; velocity, acceleration and
-jerk limits remain enforced. `waypoint` remains the default for motion scripts.
-
-For a third option that spreads a rest-to-rest transition over a full nominal
-input period, select the bounded quintic interpolator explicitly:
-
-```bash
-ros2 launch dual_crx_control dual_arm.launch.py \
-  mock:=true rviz:=false method:=quintic input_rate_hz:=10.0
-```
-
-This uses a five-degree polynomial, not Ruckig's time-optimal trajectory. Small
-feasible moves accelerate over the first half and decelerate over the second
-half of the period. Infeasible periods are extended to respect the same velocity,
-acceleration and jerk planning limits as Ruckig. New targets preserve the current
-planned position/velocity/acceleration; repeated identical targets do not restart
-the trajectory. Ruckig mode/timeout arguments do not apply. This favors smoothness
-over tracking latency, especially at high input rates. See
+Quintic interpolation uses a fifth-degree polynomial with zero terminal velocity
+and acceleration. The nominal input period is a minimum transition time; the
+planner extends it when needed to respect velocity, acceleration, and jerk
+limits. New targets preserve the current planned position, velocity, and
+acceleration. Repeated identical targets do not restart the trajectory.
+Keyboard input is checked at 50 Hz and sends a target only when a movement key is
+accepted; interpolation continues at 500 Hz and holds the final target.
+Ruckig mode/timeout arguments do not apply to quintic. See
 [quintic interpolation and evaluation](docs/quintic_interpolation.md).
 
 In terminal 2, start keyboard input and keep that terminal focused:
@@ -513,7 +490,7 @@ For a 0.5 mm step:
 ros2 run dual_crx_control keyboard_control.py --ros-args -p step_m:=0.0005
 ```
 
-The maximum step is 0.005 m. This mode requires `method:=ruckig` and an interactive Linux/WSL terminal. Space, arm switching, and exit do not cancel the last target already accepted by the interpolator.
+The maximum step is 0.005 m. This mode requires `method:=quintic` and an interactive Linux/WSL terminal. Space, arm switching, and exit do not cancel the last target already accepted by the interpolator.
 
 The keyboard program does not record automatically. To record a session, run the standalone recorder shown under **Recording and analysis** in another terminal.
 
@@ -525,7 +502,7 @@ for headless testing.
 
 ```bash
 ros2 launch dual_crx_control dual_arm.launch.py \
-  mock:=true rviz:=false method:=linear input_rate_hz:=100.0
+  mock:=true rviz:=false method:=quintic input_rate_hz:=100.0
 ```
 
 The retargeting script connects to the same fixed `/crx5ia` topic tree:
@@ -627,7 +604,7 @@ First prepare the FANUC driver configuration, network connections, and controlle
 
 ```bash
 ros2 launch dual_crx_control dual_arm.launch.py \
-  mock:=false rviz:=false method:=linear input_rate_hz:=50.0 \
+  mock:=false rviz:=false method:=quintic input_rate_hz:=50.0 \
   left_robot_ip:=192.168.2.100 right_robot_ip:=192.168.1.100
 ```
 
@@ -646,7 +623,7 @@ There is also a `dual_arm_readonly.launch.py` using the driver's `motion_control
 | `Package 'dual_crx_control' not found` | Confirm the build succeeded and source the workspace's `install/setup.bash` in the current terminal |
 | Missing FANUC package or Xacro | Install/build and source both the driver and description packages; mock mode needs them too |
 | Waiting for joint states or interpolation | Check that the launch is running, both controllers are active, and terminals use the same `ROS_DOMAIN_ID` |
-| Keyboard control will not enable | Use `method:=ruckig`, check for fresh feedback, and press the arm-selection key and `e` separately in an interactive terminal |
+| Keyboard control will not enable | Use `method:=quintic`, check for fresh feedback, and press the arm-selection key and `e` separately in an interactive terminal |
 | RViz cannot open | Check the graphical display environment, or run mock mode with `rviz:=false` |
 | Missing or unloadable `_ruckig` | Check that the native extension built successfully and that the active ROS/Python environment matches the build |
 | Recording directory is not writable | Set `--output-dir`, `record_output_dir`, or the recorder's `output_dir` to a writable location |

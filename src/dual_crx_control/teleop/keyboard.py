@@ -1,4 +1,4 @@
-"""Small, event-driven Cartesian jogger using the shared Ruckig interpolator."""
+"""Small, event-driven Cartesian jogger using the shared quintic interpolator."""
 
 from functools import partial
 import os
@@ -116,7 +116,7 @@ class KeyboardControl(Node):
         self.method_client = AsyncParameterClient(self, INTERPOLATION_NODE)
         self.method_future = None
         self.method_checked = -float('inf')
-        self.ruckig_ready = False
+        self.quintic_ready = False
         for side in SIDES:
             self.create_subscription(JointState, arm_topic(side, 'joint_states'),
                                      partial(self.feedback, side), qos_profile_sensor_data)
@@ -140,9 +140,9 @@ class KeyboardControl(Node):
 
     def method_result(self, future):
         try:
-            self.ruckig_ready = future.result().values[0].string_value == 'ruckig'
+            self.quintic_ready = future.result().values[0].string_value == 'quintic'
         except Exception:
-            self.ruckig_ready = False
+            self.quintic_ready = False
         self.method_checked = time.monotonic()
 
     def configure_message(self, message):
@@ -183,8 +183,8 @@ class KeyboardControl(Node):
         now = time.monotonic()
         if self.model_fault or not self.description:
             return 'robot description unavailable/invalid'
-        if not self.ruckig_ready or now - self.method_checked > 2.5:
-            return f'waiting for {INTERPOLATION_NODE} with method=ruckig'
+        if not self.quintic_ready or now - self.method_checked > 2.5:
+            return f'waiting for {INTERPOLATION_NODE} with method=quintic'
         if not self.target_clients[self.side].available():
             return 'missing interpolation subscriber'
         if now - self.received.get(self.side, -float('inf')) > self.settings['state_timeout']:

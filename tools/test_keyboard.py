@@ -156,7 +156,8 @@ def test_ros_mock_both_arms_and_watchdog():
     try:
         mock = DualMockRobot(parameter_overrides=[Parameter('robot_description', value=description)])
         nodes.append(mock)
-        interpolator = InterpolationNode(parameter_overrides=[Parameter('method', value='ruckig')])
+        interpolator = InterpolationNode(namespace='crx5ia')
+        assert interpolator.method == 'quintic'
         nodes.append(interpolator)
         keyboard = KeyboardControl(read_key, parameter_overrides=[Parameter('robot_description', value=description)])
         nodes.append(keyboard)
@@ -168,7 +169,7 @@ def test_ros_mock_both_arms_and_watchdog():
         assert keyboard.jog is None
         press('w')
         assert targets == []
-        keyboard.ruckig_ready = False
+        keyboard.quintic_ready = False
         press('e')
         assert keyboard.jog is None
         spin_until(lambda: keyboard.readiness_error() is None)
@@ -201,7 +202,7 @@ def test_ros_mock_both_arms_and_watchdog():
             assert np.linalg.norm(goal[:3, 3] - start[:3, 3]) == pytest.approx(.001)
             press(' ')
             assert keyboard.jog is None
-            # Disarm stops new targets, not the accepted Ruckig segment.
+            # Disarm stops new targets, not the accepted quintic segment.
             q_goal = np.array(targets[-1].position)
             spin_until(lambda: np.max(np.abs(mock.positions[side] - q_goal)) < 1e-7)
             actual = keyboard.models[side].fk(mock.positions[side])
@@ -235,3 +236,24 @@ def test_ros_mock_both_arms_and_watchdog():
         for node in reversed(nodes):
             node.destroy_node()
         rclpy.shutdown()
+
+
+@pytest.mark.parametrize('method,ready', [('quintic', True), ('ruckig', False),
+                                         ('linear', False), ('cubic', False), ('', False)])
+def test_keyboard_requires_quintic_method(method, ready):
+    from concurrent.futures import Future
+    node = SimpleNamespace(quintic_ready=False, method_checked=0.)
+    response = Future()
+    response.set_result(SimpleNamespace(values=[SimpleNamespace(string_value=method)]))
+    KeyboardControl.method_result(node, response)
+    assert node.quintic_ready is ready
+    assert node.method_checked > 0.
+
+
+def test_method_query_failure_revokes_readiness():
+    from concurrent.futures import Future
+    node = SimpleNamespace(quintic_ready=True, method_checked=0.)
+    response = Future()
+    response.set_exception(RuntimeError('interpolator unavailable'))
+    KeyboardControl.method_result(node, response)
+    assert not node.quintic_ready

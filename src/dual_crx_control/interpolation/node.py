@@ -40,7 +40,7 @@ class InterpolationNode(Node):
         self.input_rate = validate_rate(self.declare_parameter(
             'input_rate_hz', 50.0, ParameterDescriptor(read_only=True)).value)
         self.method = self.declare_parameter(
-            'method', 'linear', ParameterDescriptor(read_only=True)).value
+            'method', 'quintic', ParameterDescriptor(read_only=True)).value
         if self.method not in ('linear', 'cubic', 'ruckig', 'quintic'):
             raise ValueError('method must be linear, cubic, ruckig or quintic')
         self.ruckig = None

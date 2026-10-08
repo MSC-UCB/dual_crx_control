@@ -6,10 +6,10 @@ Before use (in each terminal):
     source install/setup.bash
 
 Usage: ros2 launch dual_crx_control dual_arm.launch.py argument:=value
-    # Mock hardware, no RViz, Ruckig interpolation:
-    ros2 launch dual_crx_control dual_arm.launch.py mock:=true rviz:=false method:=ruckig
-    # Real hardware, linear interpolation, targets actually sent at 100 Hz:
-    ros2 launch dual_crx_control dual_arm.launch.py mock:=false rviz:=false method:=linear input_rate_hz:=100.0
+    # Mock hardware, no RViz, quintic interpolation:
+    ros2 launch dual_crx_control dual_arm.launch.py mock:=true rviz:=false method:=quintic
+    # Real hardware, quintic interpolation, targets actually sent at 100 Hz:
+    ros2 launch dual_crx_control dual_arm.launch.py mock:=false rviz:=false method:=quintic input_rate_hz:=100.0
     # List all arguments:
     ros2 launch dual_crx_control dual_arm.launch.py --show-args
 
