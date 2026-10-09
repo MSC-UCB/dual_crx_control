@@ -1,5 +1,7 @@
 <?xml version="1.0"?>
 <robot name="dual_crx" xmlns:xacro="http://wiki.ros.org/xacro">
+  <xacro:arg name="enable_left" default="true"/>
+  <xacro:arg name="enable_right" default="true"/>
   <xacro:arg name="left_xyz" default="0 0 0"/>
   <xacro:arg name="left_rpy" default="0 0 0"/>
   <!-- Previous right arm base calibration:
@@ -43,27 +45,31 @@
     <origin xyz="0 0 0" rpy="0 0 0"/>
   </joint>
 
-  <link name="left_ee_mount"/>
-  <xacro:crx5ia prefix="left_" parent="world" child="left_ee_mount">
-    <origin xyz="$(arg left_xyz)" rpy="$(arg left_rpy)"/>
-  </xacro:crx5ia>
+  <xacro:if value="$(arg enable_left)">
+    <link name="left_ee_mount"/>
+    <xacro:crx5ia prefix="left_" parent="world" child="left_ee_mount">
+      <origin xyz="$(arg left_xyz)" rpy="$(arg left_rpy)"/>
+    </xacro:crx5ia>
 
-  <link name="right_ee_mount"/>
-  <xacro:crx5ia prefix="right_" parent="world" child="right_ee_mount">
-    <origin xyz="$(arg right_xyz)" rpy="$(arg right_rpy)"/>
-  </xacro:crx5ia>
+    <link name="left_tcp"/>
+    <joint name="left_ee_to_tcp" type="fixed">
+      <parent link="left_ee_mount"/>
+      <child link="left_tcp"/>
+      <origin xyz="0.035 0 0" rpy="0 0 0"/>
+    </joint>
+  </xacro:if>
 
-  <link name="left_tcp"/>
-  <joint name="left_ee_to_tcp" type="fixed">
-    <parent link="left_ee_mount"/>
-    <child link="left_tcp"/>
-    <origin xyz="0.035 0 0" rpy="0 0 0"/>
-  </joint>
+  <xacro:if value="$(arg enable_right)">
+    <link name="right_ee_mount"/>
+    <xacro:crx5ia prefix="right_" parent="world" child="right_ee_mount">
+      <origin xyz="$(arg right_xyz)" rpy="$(arg right_rpy)"/>
+    </xacro:crx5ia>
 
-  <link name="right_tcp"/>
-  <joint name="right_ee_to_tcp" type="fixed">
-    <parent link="right_ee_mount"/>
-    <child link="right_tcp"/>
-    <origin xyz="0.035 0 0" rpy="0 0 0"/>
-  </joint>
+    <link name="right_tcp"/>
+    <joint name="right_ee_to_tcp" type="fixed">
+      <parent link="right_ee_mount"/>
+      <child link="right_tcp"/>
+      <origin xyz="0.035 0 0" rpy="0 0 0"/>
+    </joint>
+  </xacro:if>
 </robot>

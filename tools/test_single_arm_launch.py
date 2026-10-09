@@ -10,6 +10,7 @@ from pathlib import Path
 import signal
 import subprocess
 import time
+import xml.etree.ElementTree as ET
 
 import numpy as np
 import pytest
@@ -23,10 +24,12 @@ from rcl_interfaces.srv import GetParameters
 from geometry_msgs.msg import WrenchStamped
 from sensor_msgs.msg import JointState
 from std_msgs.msg import String
+from tf2_msgs.msg import TFMessage
 
 from dual_crx_control.motion.cartesian_controller import DualCartesianController
 from dual_crx_control.robot.joint_config import (
-    INTERPOLATED_COMMANDS_TOPIC, JOINT_NAMES, JOINT_STATES_TOPIC, JOINT_TARGETS_TOPIC)
+    INTERPOLATED_COMMANDS_TOPIC, JOINT_NAMES, JOINT_STATES_TOPIC, JOINT_TARGETS_TOPIC,
+    ROBOT_DESCRIPTION_TOPIC)
 
 ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location('single_launch_admittance', ROOT / 'scripts/admittance_hand_guiding.py')
@@ -104,6 +107,15 @@ def assert_isolated(probe, side):
 def test_single_mock_full_chain(tmp_path, side, read_only):
     with stack(tmp_path, side, read_only) as (probe, executor, process, log):
         feedback, commands, states = [], [], []
+        descriptions, frames = [], set()
+        probe.create_subscription(String, ROBOT_DESCRIPTION_TOPIC,
+                                  lambda msg: descriptions.append(msg.data),
+                                  QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL))
+        def receive_tf(msg):
+            frames.update(t.child_frame_id for t in msg.transforms)
+        probe.create_subscription(TFMessage, '/tf', receive_tf, 100)
+        probe.create_subscription(TFMessage, '/tf_static', receive_tf,
+                                  QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL))
         probe.create_subscription(JointState, JOINT_STATES_TOPIC, feedback.append, 10)
         if not read_only:
             probe.create_subscription(JointState, INTERPOLATED_COMMANDS_TOPIC, commands.append, 100)
@@ -121,6 +133,12 @@ def test_single_mock_full_chain(tmp_path, side, read_only):
         hardware_client = probe.create_client(ListHardwareComponents, manager + '/list_hardware_components')
         wait(executor, lambda: feedback and len(feedback[-1].position) == 6 and controller_client.service_is_ready())
         assert feedback[-1].name == JOINT_NAMES[side]
+        wait(executor, lambda: descriptions and f'{side}_tcp' in frames
+             and f'{side}_fanuc_flange' in frames)
+        other = 'right' if side == 'left' else 'left'
+        model = ET.fromstring(descriptions[-1])
+        assert not any(link.attrib['name'].startswith(f'{other}_') for link in model.findall('link'))
+        assert not any(frame.startswith(f'{other}_') for frame in frames)
         def query(client, service):
             future = client.call_async(service.Request())
             wait(executor, future.done)

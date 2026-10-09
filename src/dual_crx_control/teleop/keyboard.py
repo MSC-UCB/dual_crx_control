@@ -8,6 +8,7 @@ import termios
 import time
 import tty
 from xml.parsers.expat import ExpatError
+from xml.dom.minidom import parseString
 
 import numpy as np
 import rclpy
@@ -158,8 +159,13 @@ class KeyboardControl(Node):
                 self.model_fault = True
                 self.disarm('robot_description changed; restart required')
             return
-        models = {s: CRXKinematics(description, f'{s}_tcp') for s in SIDES}
-        if any(models[s].joint_names != JOINT_NAMES[s] for s in SIDES):
+        with parseString(description) as robot:
+            links = {link.getAttribute('name') for link in robot.getElementsByTagName('link')}
+        models = {s: CRXKinematics(description, f'{s}_tcp')
+                  for s in SIDES if f'{s}_tcp' in links}
+        if not models:
+            raise ValueError('Expected at least one CRX TCP in robot_description')
+        if any(model.joint_names != JOINT_NAMES[s] for s, model in models.items()):
             raise ValueError('Expected left/right J1..J6 joint order')
         self.models = models
         self.solvers = {s: DampedLeastSquaresIK(m) for s, m in models.items()}

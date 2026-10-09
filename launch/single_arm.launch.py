@@ -2,7 +2,7 @@
 
 control:=none starts only the stack; cartesian starts a sine motion, and
 admittance opens the two-panel GUI with the inactive arm disabled.
-The combined world model preserves base calibration and TCP definitions.
+The selected arm's world model preserves base calibration and TCP definitions.
 """
 import xml.etree.ElementTree as ET
 
@@ -37,7 +37,11 @@ def launch_setup(context):
     xacro_file = PathJoinSubstitution([
         FindPackageShare("dual_crx_control"), "urdf", "dual_crx.urdf.xacro",
     ])
-    robot_description = ParameterValue(Command(["xacro ", xacro_file]), value_type=str)
+    robot_description = ParameterValue(Command([
+        "xacro ", xacro_file,
+        " enable_left:=", str(side == "left").lower(),
+        " enable_right:=", str(side == "right").lower(),
+    ]), value_type=str)
     driver_xacro = PathJoinSubstitution([
         FindPackageShare("fanuc_hardware_interface"), "robot", "crx5ia.urdf.xacro",
     ]).perform(context)

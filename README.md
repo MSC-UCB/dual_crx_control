@@ -53,6 +53,20 @@ source /opt/ros/jazzy/setup.bash
 source install/setup.bash
 ```
 
+## Dual-arm bringup
+
+[`dual_arm.launch.py`](launch/dual_arm.launch.py) is the main entry point for controlling both CRX arms. It starts both robot drivers, joint-state and force/torque broadcasters, position controllers, the shared 500 Hz joint interpolator, the collision force limiter, and RViz. By default, it uses **mock hardware** and **quintic interpolation**. Starting this launch does not send motion targets; run a motion program separately to publish targets to `/crx5ia/joint_targets`. For physical robots, set `mock:=false` and configure `left_robot_ip` and `right_robot_ip`.
+
+```bash
+ros2 launch dual_crx_control dual_arm.launch.py mock:=true rviz:=true
+```
+
+List all available options:
+
+```bash
+ros2 launch dual_crx_control dual_arm.launch.py --show-args
+```
+
 ## Single-arm bringup
 
 Select the only active arm with `prefix:=left_` or `prefix:=right_`:
@@ -72,10 +86,11 @@ arm's six joints; targets containing the inactive arm are rejected as a whole.
 All four interpolation methods (`linear`, `cubic`, `ruckig`, `quintic`) support this
 mode. Public joint feedback contains only the selected six joints.
 
-The combined world URDF and its static TF remain available to preserve base
-calibration and TCP definitions; no feedback is fabricated for the inactive arm.
-RViz may therefore show an incomplete inactive arm. Global ROS topics such as
-`/tf`, `/rosout`, and `/parameter_events` are expected.
+The world URDF and TF contain only the selected arm, with its original base
+calibration and TCP offset. RViz shows that arm and the table; use `rviz:=true`
+to open it. No model or feedback is fabricated for the inactive arm. The default
+dual-arm launch still includes both arms. Global ROS topics such as `/tf`,
+`/rosout`, and `/parameter_events` are expected.
 
 Choose one optional control program when starting the launch:
 
@@ -134,7 +149,8 @@ world X, Y, and Z; Space disarms and `q` exits. Disarming does not cancel a targ
 already accepted by the interpolator. Run only one motion sender at a time.
 
 The keyboard program defaults to the left arm and does not use `active_arms`.
-It checks feedback only for the selected arm, so the other arm being offline
+It loads the arms present in the URDF and checks feedback only for the selected
+arm, so the other arm being offline
 does not prevent jogging. Selecting the inactive arm and pressing `e` reports
 `stale/missing feedback` and leaves control disarmed. It still subscribes to both
 arms' `joint_states`, so the inactive arm's topic can appear with a subscriber

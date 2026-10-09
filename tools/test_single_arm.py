@@ -3,6 +3,7 @@ import csv
 import importlib.util
 from pathlib import Path
 import time
+import xml.etree.ElementTree as ET
 
 import numpy as np
 import pytest
@@ -13,10 +14,12 @@ from std_msgs.msg import String
 import xacro
 
 from dual_crx_control.robot.joint_config import JOINT_NAMES, SIDES, validate_active_arms
+from dual_crx_control.robot.kinematics import CRXKinematics
 from dual_crx_control.interpolation.node import InterpolationNode
 from dual_crx_control.motion.cartesian_controller import DualCartesianController
 from dual_crx_control.motion.circle_controller import DualCircleController
 from dual_crx_control.collision_force_limiter import CollisionForceLimiter, ForceMonitor
+from dual_crx_control.teleop.keyboard import KeyboardControl
 
 ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location('single_admittance', ROOT / 'scripts/admittance_hand_guiding.py')
@@ -45,6 +48,54 @@ def nodes():
 @pytest.fixture(scope='module')
 def xml():
     return xacro.process_file(str(ROOT / 'urdf/dual_crx.urdf.xacro')).toxml()
+
+
+def single_xml(side):
+    return xacro.process_file(str(ROOT / 'urdf/dual_crx.urdf.xacro'), mappings={
+        f'enable_{s}': str(s == side).lower() for s in SIDES}).toxml()
+
+
+@pytest.mark.parametrize('side', SIDES)
+def test_selected_model_preserves_world_chain_and_removes_other_arm(xml, side):
+    description = single_xml(side)
+    root = ET.fromstring(description)
+    links = {link.attrib['name'] for link in root.findall('link')}
+    other = next(s for s in SIDES if s != side)
+    assert {'world', 'table_frame', 'calibration_table_surface', f'{side}_tcp'} <= links
+    assert not any(name.startswith(f'{other}_') for name in links)
+    assert {joint.attrib['name'] for joint in root.findall('joint')
+            if joint.attrib['type'] == 'revolute'} == set(JOINT_NAMES[side])
+    for joint in root.findall('joint'):
+        assert joint.find('parent').attrib['link'] in links
+        assert joint.find('child').attrib['link'] in links
+    # Both TCP and flange (admittance) keep their calibrated world transforms.
+    for tip in (f'{side}_tcp', f'{side}_fanuc_flange'):
+        before, after = CRXKinematics(xml, tip), CRXKinematics(description, tip)
+        assert before.joint_names == after.joint_names == JOINT_NAMES[side]
+        for fraction in (.25, .5, .75):
+            q = before.lower + fraction * (before.upper - before.lower)
+            np.testing.assert_allclose(after.fk(q), before.fk(q), atol=1e-12, rtol=0)
+            np.testing.assert_allclose(after.jacobian(q), before.jacobian(q), atol=1e-12, rtol=0)
+
+
+def test_default_world_model_still_has_both_arms(xml):
+    joints = {joint.attrib['name'] for joint in ET.fromstring(xml).findall('joint')
+              if joint.attrib['type'] == 'revolute'}
+    assert joints == set(JOINT_NAMES['left'] + JOINT_NAMES['right'])
+
+
+@pytest.mark.parametrize('side', SIDES)
+def test_keyboard_accepts_single_world_model(nodes, side):
+    keys = iter(['1' if side == 'left' else '2', 'e'])
+    node = nodes(lambda **kwargs: KeyboardControl(lambda: next(keys), **kwargs),
+                 robot_description=single_xml(side))
+    assert set(node.models) == {side} and not node.model_fault
+    node.quintic_ready, node.method_checked = True, time.monotonic()
+    node.target_clients[side].available = lambda: True
+    node.feedback(side, JointState(name=JOINT_NAMES[side], position=[0.] * 6))
+    node.cycle()
+    node.cycle()
+    assert node.jog is not None and node.side == side
 
 
 @pytest.mark.parametrize('arms', [[], ['left', 'left'], ['other'], ['left_'], 'left'])
@@ -100,7 +151,7 @@ def test_interpolation_isolated_endpoints_and_atomic_rejection(nodes, side, meth
 @pytest.mark.parametrize('side', SIDES)
 @pytest.mark.parametrize('cls', [DualCartesianController, DualCircleController])
 def test_cartesian_initial_motion_completion_and_recording(nodes, xml, tmp_path, side, cls):
-    node = nodes(cls, active_arms=[side], robot_description=xml, output_dir=str(tmp_path))
+    node = nodes(cls, active_arms=[side], robot_description=single_xml(side), output_dir=str(tmp_path))
     assert_no_inactive_endpoints(node, side)
     assert set(node.models) == set(node.initial_targets) == {side}
     q = node.initial_targets[side].copy()
@@ -155,7 +206,7 @@ def test_limiter_only_requests_selected_arm(nodes, side):
 def test_admittance_single_arm_enable_and_competing_sender(nodes, xml, side):
     node = nodes(ad.AdmittanceNode, active_arms=[side])
     assert_no_inactive_endpoints(node, side)
-    node.configure(String(data=xml))
+    node.configure(String(data=single_xml(side)))
     assert not node.model_error and set(node.arms) == {side}
     other = next(s for s in SIDES if s != side)
     node.request(other, 'enable')
