@@ -140,26 +140,8 @@ does not prevent jogging. Selecting the inactive arm and pressing `e` reports
 arms' `joint_states`, so the inactive arm's topic can appear with a subscriber
 and no publisher; this does not start that arm's driver or generate feedback.
 
-### Read-only mode and validation
 
-Use `read_only:=true control:=none` for state and wrench feedback without motion
-controllers. For physical hardware, set `mock:=false` and the selected
-`left_robot_ip` or `right_robot_ip`; the other driver is never started. Other
-options are listed by `ros2 launch dual_crx_control single_arm.launch.py --show-args`.
-
-```bash
-ros2 launch dual_crx_control single_arm.launch.py \
-  prefix:=left_ mock:=true rviz:=false read_only:=true control:=none
-```
-
-Software-only checks after building:
-
-```bash
-python3 -m pytest -q src/dual_crx_control/tools/test_single_arm.py
-SINGLE_ARM_ROS_MOCK=1 python3 -m pytest -q src/dual_crx_control/tools/test_single_arm_launch.py
-```
-
-## Quick start: a small joint motion in mock mode
+## Dual Arm Quick start: a small joint motion in mock mode
 
 Mock startup uses [config/initial_pose.yaml](config/initial_pose.yaml):
 
